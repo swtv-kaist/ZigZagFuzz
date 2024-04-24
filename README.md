@@ -118,7 +118,8 @@ You can find experiment materials in `paper_exp/`.
 
     4. Run script.
     ```bash
-    python3 ${ZigZagFuzz_repo}/utils/get_gcov.py libdwarf-code-0.5.0/gcov_install/bin/dwarfdump /tmp/out_dwarfdump_1/default/queue/ 3600 100
+    python3 ${ZigZagFuzz_repo}/utils/get_gcov.py libdwarf-code-0.5.0/gcov_install/bin/dwarfdump \
+        /tmp/out_dwarfdump_1/default/queue/ 3600 100
     ```
     It will show the branch coverage over time.
 
