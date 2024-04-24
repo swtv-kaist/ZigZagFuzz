@@ -1,0 +1,76 @@
+ad
+pr
+rm
+in
+ex
+mv
+mo
+fi
+fc
+-v
+-q
+-Q d
+-Q i
+-Q w
+-Q e
+-Q m
+-b
+-u
+-g key
+-K key
+-n UTF-8
+-k
+-t
+-T
+-f
+-F
+-a 10:10
+-Y 10
+-O 10
+-D 10
+-p s
+-p a
+-p e
+-p t
+-p v
+-p h
+-p i
+-p c
+-p p
+-p C
+-p R
+-p S
+-p X
+-P E
+-P I
+-P X
+-P x
+-P g
+-P k
+-P l
+-P n
+-P y
+-P c
+-P s
+-P v
+-P t
+-P h
+-d a
+-d e
+-d t
+-d i
+-d x
+-d c
+-i X
+-e p
+-r :basename:
+-r :dirname:
+-r :parentname:
+-c txt
+-m /dev/null
+-m
+-M set
+-M add
+-M del
+-l /dev/null
+-S

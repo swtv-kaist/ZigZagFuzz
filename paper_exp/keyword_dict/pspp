@@ -1,0 +1,20 @@
+-o /dev/null
+-O txt
+-O a=b
+_o device=terminal
+-O device=listing
+-e /dev/null
+--no-output
+--table=look=/dev/null
+-I
+-I-
+-r
+-a
+--algorithm=compatible
+--algorithm=enhanced
+--syntax=compatible
+--syntax=enhanced
+-b
+-i
+--syntax-encoding=
+-s

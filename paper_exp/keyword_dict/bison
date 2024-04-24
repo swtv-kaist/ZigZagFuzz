@@ -1,0 +1,51 @@
+-u
+-f caret
+-f fixit
+-f syntax-only
+-f all
+-f none
+--style=/dev/null
+--style=@@
+-W conflicts-sr
+-W conflicts-rr
+-W counterexamples
+-W dangling-alias
+-W deprecated
+-W empty-rule
+-W midrule-values
+-W precedence
+-W yacc
+-W other
+-W all
+-W no-conflicts-sr
+-W error
+--color=yes
+--color=no
+--color=tty
+-L
+-S
+-t
+--locations
+-D
+-F
+-p
+-l
+-k
+-y
+-H
+-d
+-r
+--report-file=/dev/null
+-o /dev/null
+-g
+--html=/dev/null
+--xml=/dev/null
+-x
+-M
+--report=states
+--report=itemsets
+--report=lookaheads
+--report=solved
+--report=cex
+--report=all
+--report=none

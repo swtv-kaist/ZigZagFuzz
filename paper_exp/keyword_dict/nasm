@@ -1,0 +1,218 @@
+-@ /dev/null
+-o /dev/null
+--keep-all
+-Xformat
+-Xgnu
+-Xvc
+-s
+-Z/dev/null
+-M
+-MG
+-MF /dev/null
+-MD /dev/null
+-MT /dev/null
+-MQ /dev/null
+-MP
+-f bin
+-f ith
+-f bin
+-f ith
+-f srec
+-f aout
+-f aoutb
+-f coff
+-f elf32
+-f elf64
+-f elfx32
+-f as86
+-f obj
+-f win32
+-f win64
+-f ieee
+-f macho32
+-f macho64
+-f dbg
+-f elf
+-f macho
+-f win
+-g
+-F elf32
+-F elf64
+-F elfx32
+-F obj
+-F win32
+-F win64
+-F ieee
+-F macho32
+-F macho64
+-F dbg
+-l /dev/null
+-Lb
+-Ld
+-Le
+-Lf
+-Lm
+-Lp
+-Ls
+-Lw
+-L+
+-O0
+-O1
+-Ox
+-Ov
+-t
+-E
+-e
+-a
+-I/dev/null
+-P/dev/null
+-DMARCRO=1
+-UMARCROO
+--pragma
+--before
+--no-line
+--prefix
+--suffix
+--lprefix
+--lpostfix
+--reproducible
+-w+x
+-w-x
+-w+error
+-w-error
+-w+error=all
+-w-error=all
+-w+error=db-empty
+-w-error=db-empty
+-w+error=ea
+-w-error=ea
+-w+error=ea-absolute
+-w-error=ea-absolute
+-w+error=ea-dispsize
+-w-error=ea-dispsize
+-w+error=float
+-w-error=float
+-w+error=float-denorm
+-w-error=float-denorm
+-w+error=float-overflow
+-w-error=float-overflow
+-w+error=float-toolong
+-w-error=float-toolong
+-w+error=float-underflow
+-w-error=float-underflow
+-w+error=forward
+-w-error=forward
+-w+error=label
+-w-error=label
+-w+error=label-orphan
+-w-error=label-orphan
+-w+error=label-redef
+-w-error=label-redef
+-w+error=label-redef-late
+-w-error=label-redef-late
+-w+error=number-overflow
+-w-error=number-overflow
+-w+error=obsolete
+-w-error=obsolete
+-w+error=obsolete-nop
+-w-error=obsolete-nop
+-w+error=obsolete-removed
+-w-error=obsolete-removed
+-w+error=obsolete-valid
+-w-error=obsolete-valid
+-w+error=phase
+-w-error=phase
+-w+error=pp
+-w-error=pp
+-w+error=pp-else
+-w-error=pp-else
+-w+error=pp-else-elif
+-w-error=pp-else-elif
+-w+error=pp-else-else
+-w-error=pp-else-else
+-w+error=pp-empty-braces
+-w-error=pp-empty-braces
+-w+error=pp-environment
+-w-error=pp-environment
+-w+error=pp-macro
+-w-error=pp-macro
+-w+error=pp-macro-def
+-w-error=pp-macro-def
+-w+error=pp-macro-def-case-single
+-w-error=pp-macro-def-case-single
+-w+error=pp-macro-def-greedy-single
+-w-error=pp-macro-def-greedy-single
+-w+error=pp-macro-def-param-single
+-w-error=pp-macro-def-param-single
+-w+error=pp-macro-defaults
+-w-error=pp-macro-defaults
+-w+error=pp-macro-params
+-w-error=pp-macro-params
+-w+error=pp-macro-params-legacy
+-w-error=pp-macro-params-legacy
+-w+error=pp-macro-params-multi
+-w-error=pp-macro-params-multi
+-w+error=pp-macro-params-single
+-w-error=pp-macro-params-single
+-w+error=pp-macro-redef-multi
+-w-error=pp-macro-redef-multi
+-w+error=pp-open
+-w-error=pp-open
+-w+error=pp-open-braces
+-w-error=pp-open-braces
+-w+error=pp-open-brackets
+-w-error=pp-open-brackets
+-w+error=pp-open-string
+-w-error=pp-open-string
+-w+error=pp-rep-negative
+-w-error=pp-rep-negative
+-w+error=pp-sel-range
+-w-error=pp-sel-range
+-w+error=pp-trailing
+-w-error=pp-trailing
+-w+error=pragma
+-w-error=pragma
+-w+error=pragma-bad
+-w-error=pragma-bad
+-w+error=pragma-empty
+-w-error=pragma-empty
+-w+error=pragma-na
+-w-error=pragma-na
+-w+error=pragma-unknown
+-w-error=pragma-unknown
+-w+error=prefix
+-w-error=prefix
+-w+error=prefix-bnd
+-w-error=prefix-bnd
+-w+error=prefix-hle
+-w-error=prefix-hle
+-w+error=prefix-lock
+-w-error=prefix-lock
+-w+error=prefix-opsize
+-w-error=prefix-opsize
+-w+error=prefix-seg
+-w-error=prefix-seg
+-w+error=ptr
+-w-error=ptr
+-w+error=regsize
+-w-error=regsize
+-w+error=unknown-warning
+-w-error=unknown-warning
+-w+error=user
+-w-error=user
+-w+error=warn-stack-empty
+-w-error=warn-stack-empty
+-w+error=zeroing
+-w-error=zeroing
+-w+error=zext-reloc
+-w-error=zext-reloc
+-w+error=other
+-w-error=other
+--limit-X passes
+--limit-X stalled-passes
+--limit-X macro-levels
+--limit-X macro-tokens
+--limit-X mmacros
+--limit-X rep
+--limit-X eval
+--limit-X lines

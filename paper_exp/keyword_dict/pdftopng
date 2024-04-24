@@ -1,0 +1,18 @@
+-f 10
+-l 10
+-r 10
+-mono
+-gray
+-alpha
+-rot 10
+-freetype yes
+-freetype no
+-aa yes
+-aa no
+-aaVector yes
+-aaVector no
+-opw asdf
+-upw asdf
+-q
+-cfg @@
+-cfg /dev/null
