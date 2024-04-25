@@ -1,9 +1,8 @@
 # ZigZagFuzz
 
-Please refer [AFL++_readme](README_AFL++.md) to get a basic understanding of the base fuzzer, AFL++.
-
 ZigZagFuzz is implemented on top of AFL++, and you can use ZigZagFuzz as similar way to AFL++.
 The below documentation focuses on the difference from AFL++.
+Please refer [AFL++_readme](README_AFL++.md) to get a basic understanding of the base fuzzer, AFL++.
 
 ## Prerequisite
 ZigZagFuzz has been tested on Ubuntu 18.04 and 20.04.
