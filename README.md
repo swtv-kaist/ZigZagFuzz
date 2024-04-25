@@ -1,8 +1,8 @@
 # ZigZagFuzz
 
-Please refer [AFL++_readme](README_AFL++.md) of AFL++ to get understanding on base fuzzer, AFL++.
+Please refer [AFL++_readme](README_AFL++.md) to get a basic understanding of the base fuzzer, AFL++.
 
-ZigZagFuzz is impelmented on the top of AFL++, and you can use ZigZagFuzz as similar way to AFL++.
+ZigZagFuzz is implemented on top of AFL++, and you can use ZigZagFuzz as similar way to AFL++.
 The below documentation focuses on the difference from AFL++.
 
 ## Prerequisite
@@ -24,15 +24,15 @@ For example, `${ZigZagFuzz_repo}/afl-clang-lto++ <target.bc> -o <target.afl> <ld
 
 ## Structure of a test case
 ZigZagFuzz considers a test case as a pair of a program option input and a file input.
-To conveniently mutate both inputs, ZigZagFuzz generates two seperate files for each test case.
-(One for command line option, and the other for file.)
+To conveniently mutate both inputs, ZigZagFuzz generates two separate files for each test case.
+(One for the command line option, and the other for the file.)
 
-The file inputs are saved in the ordinary `queue` directory in output directory,
+The file inputs are saved in the ordinary `queue` directory in the output directory,
 while the command-line option inputs are saved in `queue_argv` directory.
-Each file pair with same id will be considered as a test case.
+Each file pair with the same id will be considered as a test case.
 
 The instrumented program will take only one command-line option,
-the path to command-line option input. The instrumented code in main function
+the path to the command-line option input. The instrumented code in the main function
 will interpret the given command-line option input file, and it will begin the execution.
 
 ## Run ZigZagFuzz
@@ -42,12 +42,12 @@ For example, you can run `afl-fuzz` with the following command.
 
 `${ZigZagFuzz_repo}/afl-fuzz -i <initial seed dir> -o <output dir> -K 2 -a <dictinary file path> -- <target.afl> <initial args...>`
 
-You can find dictinary file examples in `paper_exp/keyword_dict/`.
+You can find dictionary file examples in `paper_exp/keyword_dict/`.
 The dictionary file is a simple list of keywords that can be used in command-line options.
 
 ## Replay
 The saved program option input files should contain the path to the file input.
-However, to make it easier to mutate the command-lin option input files,
+However, to make it easier to mutate the command-line option input files,
 The path strings are replaced with "@@".
 If you want to replay the saved test case, you should replace the first @@ in a command-line option input
 with the corresponding file input path.
@@ -94,7 +94,7 @@ You can find experiment materials in `paper_exp/`.
     cd libdwarf-code-0.5.0
     ```
 
-    2. Put probe code in main function as the following example.
+    2. Put probe code in the main function as in the following example.
     
     `src/bin/dwarfdump/dwarfdump.c`
     ```c
@@ -116,7 +116,7 @@ You can find experiment materials in `paper_exp/`.
     make install
     ```
 
-    4. Run script.
+    4. Run the replay script.
     ```bash
     python3 ${ZigZagFuzz_repo}/utils/get_gcov.py libdwarf-code-0.5.0/gcov_install/bin/dwarfdump \
         /tmp/out_dwarfdump_1/default/queue/ 3600 100
