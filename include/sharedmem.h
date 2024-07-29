@@ -31,7 +31,6 @@
 #include "types.h"
 
 typedef struct sharedmem {
-
   // extern unsigned char *trace_bits;
 
 #ifdef USEMMAP
@@ -42,17 +41,19 @@ typedef struct sharedmem {
   char cmplog_g_shm_file_path[L_tmpnam];
 /* ========================================= */
 #else
-  s32 shm_id;                          /* ID of the SHM region              */
+  s32 shm_id; /* ID of the SHM region              */
   s32 cmplog_shm_id;
+  s32 func_shm_id;
 #endif
 
-  u8 *map;                                          /* shared memory region */
+  u8 *map; /* shared memory region */
 
-  size_t map_size;                                 /* actual allocated size */
+  size_t map_size; /* actual allocated size */
 
   int             cmplog_mode;
   int             shmemfuzz_mode;
   struct cmp_map *cmp_map;
+  u8             *func_map;
 
 } sharedmem_t;
 
@@ -60,4 +61,3 @@ u8  *afl_shm_init(sharedmem_t *, size_t, unsigned char non_instrumented_mode);
 void afl_shm_deinit(sharedmem_t *);
 
 #endif
-

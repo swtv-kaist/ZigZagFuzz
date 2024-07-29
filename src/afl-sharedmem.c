@@ -65,66 +65,48 @@ static list_t shm_list = {.element_prealloc_count = 0};
 /* Get rid of shared memory. */
 
 void afl_shm_deinit(sharedmem_t *shm) {
-
   if (shm == NULL) { return; }
   list_remove(&shm_list, shm);
   if (shm->shmemfuzz_mode) {
-
     unsetenv(SHM_FUZZ_ENV_VAR);
 
   } else {
-
     unsetenv(SHM_ENV_VAR);
-
   }
 
 #ifdef USEMMAP
   if (shm->map != NULL) {
-
     munmap(shm->map, shm->map_size);
     shm->map = NULL;
-
   }
 
   if (shm->g_shm_fd != -1) {
-
     close(shm->g_shm_fd);
     shm->g_shm_fd = -1;
-
   }
 
   if (shm->g_shm_file_path[0]) {
-
     shm_unlink(shm->g_shm_file_path);
     shm->g_shm_file_path[0] = 0;
-
   }
 
   if (shm->cmplog_mode) {
-
     unsetenv(CMPLOG_SHM_ENV_VAR);
 
     if (shm->cmp_map != NULL) {
-
       munmap(shm->cmp_map, shm->map_size);
       shm->cmp_map = NULL;
-
     }
 
     if (shm->cmplog_g_shm_fd != -1) {
-
       close(shm->cmplog_g_shm_fd);
       shm->cmplog_g_shm_fd = -1;
-
     }
 
     if (shm->cmplog_g_shm_file_path[0]) {
-
       shm_unlink(shm->cmplog_g_shm_file_path);
       shm->cmplog_g_shm_file_path[0] = 0;
-
     }
-
   }
 
 #else
@@ -132,8 +114,9 @@ void afl_shm_deinit(sharedmem_t *shm) {
   if (shm->cmplog_mode) { shmctl(shm->cmplog_shm_id, IPC_RMID, NULL); }
 #endif
 
-  shm->map = NULL;
+  shmctl(shm->func_shm_id, IPC_RMID, NULL);
 
+  shm->map = NULL;
 }
 
 /* Configure shared memory.
@@ -142,11 +125,11 @@ void afl_shm_deinit(sharedmem_t *shm) {
 
 u8 *afl_shm_init(sharedmem_t *shm, size_t map_size,
                  unsigned char non_instrumented_mode) {
-
   shm->map_size = 0;
 
   shm->map = NULL;
   shm->cmp_map = NULL;
+  shm->func_map = NULL;
 
 #ifdef USEMMAP
 
@@ -173,49 +156,39 @@ u8 *afl_shm_init(sharedmem_t *shm, size_t map_size,
 
   /* very unlikely to fail even if the arch supports only two sizes */
   if (likely(psizes > 0)) {
-
     for (i = psizes - 1; shm->g_shm_fd == -1 && i >= 0; --i) {
-
       if (sizes[i] == 0 || map_size % sizes[i]) { continue; }
 
       shm->g_shm_fd =
           shm_create_largepage(shm->g_shm_file_path, shmflags, i,
                                SHM_LARGEPAGE_ALLOC_DEFAULT, DEFAULT_PERMISSION);
-
     }
-
   }
 
   #endif
 
   /* create the shared memory segment as if it was a file */
   if (shm->g_shm_fd == -1) {
-
     shm->g_shm_fd =
         shm_open(shm->g_shm_file_path, shmflags | O_CREAT, DEFAULT_PERMISSION);
-
   }
 
   if (shm->g_shm_fd == -1) { PFATAL("shm_open() failed"); }
 
   /* configure the size of the shared memory segment */
   if (ftruncate(shm->g_shm_fd, map_size)) {
-
     PFATAL("setup_shm(): ftruncate() failed");
-
   }
 
   /* map the shared memory segment to the address space of the process */
   shm->map =
       mmap(0, map_size, PROT_READ | PROT_WRITE, MAP_SHARED, shm->g_shm_fd, 0);
   if (shm->map == MAP_FAILED) {
-
     close(shm->g_shm_fd);
     shm->g_shm_fd = -1;
     shm_unlink(shm->g_shm_file_path);
     shm->g_shm_file_path[0] = 0;
     PFATAL("mmap() failed");
-
   }
 
   /* If somebody is asking us to fuzz instrumented binaries in non-instrumented
@@ -228,7 +201,6 @@ u8 *afl_shm_init(sharedmem_t *shm, size_t map_size,
   if (shm->map == (void *)-1 || !shm->map) PFATAL("mmap() failed");
 
   if (shm->cmplog_mode) {
-
     snprintf(shm->cmplog_g_shm_file_path, L_tmpnam, "/afl_cmplog_%d_%ld",
              getpid(), random());
 
@@ -240,22 +212,18 @@ u8 *afl_shm_init(sharedmem_t *shm, size_t map_size,
 
     /* configure the size of the shared memory segment */
     if (ftruncate(shm->cmplog_g_shm_fd, sizeof(struct cmp_map))) {
-
       PFATAL("setup_shm(): cmplog ftruncate() failed");
-
     }
 
     /* map the shared memory segment to the address space of the process */
     shm->cmp_map = mmap(0, sizeof(struct cmp_map), PROT_READ | PROT_WRITE,
                         MAP_SHARED, shm->cmplog_g_shm_fd, 0);
     if (shm->cmp_map == MAP_FAILED) {
-
       close(shm->cmplog_g_shm_fd);
       shm->cmplog_g_shm_fd = -1;
       shm_unlink(shm->cmplog_g_shm_file_path);
       shm->cmplog_g_shm_file_path[0] = 0;
       PFATAL("mmap() failed");
-
     }
 
     /* If somebody is asking us to fuzz instrumented binaries in
@@ -268,7 +236,6 @@ u8 *afl_shm_init(sharedmem_t *shm, size_t map_size,
 
     if (shm->cmp_map == (void *)-1 || !shm->cmp_map)
       PFATAL("cmplog mmap() failed");
-
   }
 
 #else
@@ -280,27 +247,29 @@ u8 *afl_shm_init(sharedmem_t *shm, size_t map_size,
       shmget(IPC_PRIVATE, map_size == MAP_SIZE ? map_size + 8 : map_size,
              IPC_CREAT | IPC_EXCL | DEFAULT_PERMISSION);
   if (shm->shm_id < 0) {
-
     PFATAL("shmget() failed, try running afl-system-config");
-
   }
 
   if (shm->cmplog_mode) {
-
     shm->cmplog_shm_id = shmget(IPC_PRIVATE, sizeof(struct cmp_map),
                                 IPC_CREAT | IPC_EXCL | DEFAULT_PERMISSION);
 
     if (shm->cmplog_shm_id < 0) {
-
       shmctl(shm->shm_id, IPC_RMID, NULL);  // do not leak shmem
       PFATAL("shmget() failed, try running afl-system-config");
-
     }
+  }
 
+  shm->func_shm_id = shmget(IPC_PRIVATE, FUNC_MAP_SIZE,
+                            IPC_CREAT | IPC_EXCL | DEFAULT_PERMISSION);
+
+  if (shm->func_shm_id < 0) {
+    shmctl(shm->shm_id, IPC_RMID, NULL);  // do not leak shmem
+    if (shm->cmplog_mode) shmctl(shm->cmplog_shm_id, IPC_RMID, NULL);
+    PFATAL("shmget() failed, try running afl-system-config");
   }
 
   if (!non_instrumented_mode) {
-
     shm_str = alloc_printf("%d", shm->shm_id);
 
     /* If somebody is asking us to fuzz instrumented binaries in
@@ -311,50 +280,59 @@ u8 *afl_shm_init(sharedmem_t *shm, size_t map_size,
     setenv(SHM_ENV_VAR, shm_str, 1);
 
     ck_free(shm_str);
-
   }
 
   if (shm->cmplog_mode && !non_instrumented_mode) {
-
     shm_str = alloc_printf("%d", shm->cmplog_shm_id);
 
     setenv(CMPLOG_SHM_ENV_VAR, shm_str, 1);
 
     ck_free(shm_str);
-
   }
+
+  shm_str = alloc_printf("%d", shm->func_shm_id);
+  setenv(FUNC_SHM_ENV_VAR, shm_str, 1);
+  ck_free(shm_str);
 
   shm->map = shmat(shm->shm_id, NULL, 0);
 
   if (shm->map == (void *)-1 || !shm->map) {
-
     shmctl(shm->shm_id, IPC_RMID, NULL);  // do not leak shmem
 
     if (shm->cmplog_mode) {
-
       shmctl(shm->cmplog_shm_id, IPC_RMID, NULL);  // do not leak shmem
-
     }
 
     PFATAL("shmat() failed");
-
   }
 
   if (shm->cmplog_mode) {
-
     shm->cmp_map = shmat(shm->cmplog_shm_id, NULL, 0);
 
     if (shm->cmp_map == (void *)-1 || !shm->cmp_map) {
-
       shmctl(shm->shm_id, IPC_RMID, NULL);  // do not leak shmem
 
       shmctl(shm->cmplog_shm_id, IPC_RMID, NULL);  // do not leak shmem
 
       PFATAL("shmat() failed");
+    }
+  }
 
+  shm->func_map = shmat(shm->func_shm_id, NULL, 0);
+
+  if (shm->func_map == (void *)-1 || !shm->func_map) {
+    shmctl(shm->shm_id, IPC_RMID, NULL);  // do not leak shmem
+
+    if (shm->cmplog_mode) {
+      shmctl(shm->cmplog_shm_id, IPC_RMID, NULL);  // do not leak shmem
     }
 
+    shmctl(shm->func_shm_id, IPC_RMID, NULL);  // do not leak shmem
+
+    PFATAL("shmat() failed");
   }
+
+  memset(shm->func_map, 0, FUNC_MAP_SIZE);
 
 #endif
 
@@ -362,6 +340,4 @@ u8 *afl_shm_init(sharedmem_t *shm, size_t map_size,
   list_append(&shm_list, shm);
 
   return shm->map;
-
 }
-
