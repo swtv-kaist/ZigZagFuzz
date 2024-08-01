@@ -66,6 +66,46 @@ void free_argv_bufs(afl_state_t *afl) {
   return;
 }
 
+void read_argv_keywords(afl_state_t *afl) {
+  if (afl->keyword_fn == NULL) { PFATAL("No keyword file specified (-a)"); }
+
+  FILE *f = fopen(afl->keyword_fn, "r");
+  if (!f) { PFATAL("Unable to open '%s'", afl->keyword_fn); }
+
+  u32 dict_size = 128;
+  afl->argv_dict = malloc(dict_size * sizeof(u8 *));
+  u32 num_dict_keywords = 0;
+
+  u8 buffer[MAX_KEYWORD_LEN];
+  while (fgets(buffer, MAX_KEYWORD_LEN, f)) {
+    // remove '\n'
+    buffer[strlen(buffer) - 1] = 0;
+    afl->argv_dict[num_dict_keywords++] = strdup(buffer);
+
+    if (num_dict_keywords == dict_size) {
+      dict_size *= 2;
+      afl->argv_dict = realloc(afl->argv_dict, dict_size * sizeof(u8 *));
+    }
+  }
+
+  fclose(f);
+  afl->argv_dict_cnt = num_dict_keywords;
+
+  afl->extras =
+      afl_realloc((void **)&afl->extras, (afl->extras_cnt + num_dict_keywords) *
+                                             sizeof(struct extra_data));
+  if (unlikely(!afl->extras)) { PFATAL("alloc"); }
+
+  u32 idx1;
+  for (idx1 = 0; idx1 < num_dict_keywords; idx1++) {
+    u8 *keyword = afl->argv_dict[idx1];
+    afl->extras[afl->extras_cnt].data = strdup(keyword);
+    afl->extras[afl->extras_cnt].len = strlen(keyword);
+    afl->extras[afl->extras_cnt].hit_cnt = 0;
+    afl->extras_cnt++;
+  }
+}
+
 u32 get_argv_id(afl_state_t *afl, struct queue_entry *q) {
   u32 idx1;
 

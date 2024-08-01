@@ -562,22 +562,27 @@ int main(int argc, char **argv_orig, char **envp) {
                        "T:UV:WXx:YzZ")) > 0) {
     switch (opt) {
       case 'a':
-
-        if (!stricmp(optarg, "text") || !stricmp(optarg, "ascii") ||
-            !stricmp(optarg, "txt") || !stricmp(optarg, "asc")) {
-          afl->input_mode = 1;
-
-        } else if (!stricmp(optarg, "bin") || !stricmp(optarg, "binary")) {
-          afl->input_mode = 2;
-
-        } else if (!stricmp(optarg, "def") || !stricmp(optarg, "default")) {
-          afl->input_mode = 0;
-
-        } else {
-          FATAL("-a input mode needs to be \"text\" or \"binary\".");
-        }
-
+        afl->keyword_fn = optarg;
         break;
+
+        // case 'a':
+
+        //   if (!stricmp(optarg, "text") || !stricmp(optarg, "ascii") ||
+        //       !stricmp(optarg, "txt") || !stricmp(optarg, "asc")) {
+        //     afl->input_mode = 1;
+
+        //   } else if (!stricmp(optarg, "bin") || !stricmp(optarg, "binary")) {
+        //     afl->input_mode = 2;
+
+        //   } else if (!stricmp(optarg, "def") || !stricmp(optarg, "default"))
+        //   {
+        //     afl->input_mode = 0;
+
+        //   } else {
+        //     FATAL("-a input mode needs to be \"text\" or \"binary\".");
+        //   }
+
+        //   break;
 
       case 'P':
         if (!stricmp(optarg, "explore") || !stricmp(optarg, "exploration")) {
@@ -1774,6 +1779,8 @@ int main(int argc, char **argv_orig, char **envp) {
   if (!getenv("AFL_CUSTOM_INFO_OUT")) {
     setenv("AFL_CUSTOM_INFO_OUT", afl->out_dir, 1);  // same as __AFL_OUT_DIR
   }
+
+  read_argv_keywords(afl);
 
   setup_custom_mutators(afl);
 

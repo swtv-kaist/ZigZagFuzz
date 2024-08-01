@@ -856,6 +856,10 @@ typedef struct afl_state {
   u64  *file_num_argv_mut;
   u32  *file_num_argv_finds;
 
+  u8  *keyword_fn;
+  u8 **argv_dict;
+  u32  argv_dict_cnt;
+
 #ifdef INTROSPECTION
   char  mutation[8072];
   char  m_tmp[4096];
@@ -1429,6 +1433,7 @@ static inline int permissive_create(afl_state_t *afl, const char *fn) {
 
 /* argv fuzzing */
 
+void read_argv_keywords(afl_state_t *);
 void init_argv_buf(afl_state_t *);
 u32  get_argv_id(afl_state_t *, struct queue_entry *);
 u32  get_file_id(afl_state_t *);

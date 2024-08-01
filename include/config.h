@@ -549,5 +549,6 @@
 #define MAX_CMDLINE_PAR 50000
 
 #define ARGV_MAX_SIZE 256
+#define MAX_KEYWORD_LEN 64
 
 #endif /* ! _HAVE_CONFIG_H */
