@@ -557,12 +557,19 @@ int main(int argc, char **argv_orig, char **envp) {
   afl->shmem_testcase_mode = 1;  // we always try to perform shmem fuzzing
 
   // still available: HjJkKqruvwz
-  while ((opt = getopt(argc, argv,
-                       "+a:Ab:B:c:CdDe:E:f:F:g:G:hi:I:l:L:m:M:nNo:Op:P:QRs:S:t:"
-                       "T:UV:WXx:YzZ")) > 0) {
+  while (
+      (opt = getopt(argc, argv,
+                    "+a:Ab:B:c:CdDe:E:f:F:g:G:hi:I:K:l:L:m:M:nNo:Op:P:QRs:S:t:"
+                    "T:UV:WXx:YzZ")) > 0) {
     switch (opt) {
       case 'a':
         afl->keyword_fn = optarg;
+        break;
+
+      case 'K':
+        afl->interleaving = atoi(optarg);
+        // 1 - fixed time interleaving
+        // 2 - 1 + func cov based shrink file, too
         break;
 
         // case 'a':
@@ -2366,6 +2373,12 @@ int main(int argc, char **argv_orig, char **envp) {
   // real start time, we reset, so this works correctly with -V
   afl->start_time = get_cur_time();
 
+  afl->last_stage_change_time = afl->start_time;
+  afl->mut_file_only = 0;
+
+  afl->interleaving_timeout[0] = ARGV_MUT_TIMEOUT;
+  afl->interleaving_timeout[1] = FILE_MUT_TIMEOUT;
+
   while (likely(!afl->stop_soon)) {
     cull_queue(afl);
 
@@ -2601,7 +2614,19 @@ int main(int argc, char **argv_orig, char **envp) {
         }
       }
 
-      skipped_fuzz = fuzz_one(afl);
+      if (afl->mut_file_only) {
+        // file mutation
+        skipped_fuzz = fuzz_one(afl);
+      } else {
+        // argv mutation only
+        if (rand_below(afl, 100) < ARGV_MUT_STRATEGY_PROB) {
+          // byte-level mutation
+          skipped_fuzz = fuzz_one_argv(afl);
+        } else {
+          // structural mutation
+          skipped_fuzz = fuzz_one_comb_argv(afl);
+        }
+      }
   #ifdef INTROSPECTION
       ++afl->queue_cur->stats_selected;
 
@@ -2646,6 +2671,29 @@ int main(int argc, char **argv_orig, char **envp) {
 
     } while (skipped_fuzz && afl->queue_cur && !afl->stop_soon);
 
+    if (afl->interleaving) {
+      u64 time_passed = get_cur_time() - afl->last_stage_change_time;
+      if (unlikely(afl->mut_file_only &&
+                   (time_passed > afl->interleaving_timeout[1]))) {
+        // Mutate argv from now
+        afl->last_stage_change_time = get_cur_time();
+        afl->mut_file_only = 0;
+        afl->reinit_table = 1;
+        write_shrink_log(afl);
+        if (afl->interleaving == 2) {
+          // shrink_corpus(afl);
+          update_all_bitmap_score(afl);
+        }
+      } else if (unlikely(!afl->mut_file_only &&
+                          (time_passed > afl->interleaving_timeout[0]))) {
+        // Mutate input files from now
+        afl->mut_file_only = 1;
+        afl->last_stage_change_time = get_cur_time();
+        afl->reinit_table = 1;
+        write_shrink_log(afl);
+      }
+    }
+
     u64 cur_time = get_cur_time();
 
     if (likely(afl->switch_fuzz_mode && afl->fuzz_mode == 0 &&
@@ -2663,6 +2711,7 @@ int main(int argc, char **argv_orig, char **envp) {
       afl->fuzz_mode = 1;
     }
 
+    // Sync with other instances
     if (likely(!afl->stop_soon && afl->sync_id)) {
       if (unlikely(afl->is_main_node)) {
         if (unlikely(cur_time > (afl->sync_time >> 1) + afl->last_sync_time)) {
@@ -2854,6 +2903,8 @@ stop_fuzzing:
     free(afl->argv_dict);
   }
   free_argv_bufs(afl);
+
+  if (afl->shrink_log_f) fclose(afl->shrink_log_f);
 
   if (afl->orig_cmdline) { ck_free(afl->orig_cmdline); }
   ck_free(afl->fsrv.target_path);

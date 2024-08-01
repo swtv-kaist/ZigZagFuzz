@@ -219,8 +219,9 @@ struct queue_entry {
       stats_crashes,  /* stats: # of saved crashes        */
       stats_tmouts,   /* stats: # of saved timeouts       */
 #endif
-      fuzz_level,   /* Number of fuzzing iterations     */
-      n_fuzz_entry; /* offset in n_fuzz                 */
+      fuzz_level_file, /* Number of fuzzing iterations     */
+      fuzz_level_argv, /* Number of fuzzing iterations */
+      n_fuzz_entry;    /* offset in n_fuzz                 */
 
   u64 exec_us,       /* Execution time (us)              */
       handicap,      /* Number of queue cycles behind    */
@@ -293,6 +294,12 @@ enum {
   /* 21 */ STAGE_ITS,
   /* 22 */ STAGE_INF,
   /* 23 */ STAGE_QUICK,
+
+  /* argv */
+  /* 24 */ STAGE_HAVOC_ARGV,
+  /* 25 */ STAGE_SPLICE_ARGV,
+  /* 26 */ STAGE_ARGV_COMB,
+  /* 27 */ STAGE_ARGV_FILE_CROSS,
 
   STAGE_NUM_MAX
 
@@ -832,6 +839,11 @@ typedef struct afl_state {
   struct skipdet_global *skipdet_g;
 
   /* argv fuzzing*/
+  u8  interleaving;
+  u8  mut_file_only;
+  u64 interleaving_timeout[2];
+  u64 last_stage_change_time;
+
   u32 num_argvs;
   u32 argv_buf_size;
 
@@ -859,6 +871,8 @@ typedef struct afl_state {
   u8  *keyword_fn;
   u8 **argv_dict;
   u32  argv_dict_cnt;
+
+  FILE *shrink_log_f;
 
 #ifdef INTROSPECTION
   char  mutation[8072];
@@ -1266,6 +1280,8 @@ u8   core_fuzzing(afl_state_t *);
 void pso_updating(afl_state_t *);
 u8   fuzz_one(afl_state_t *);
 
+void locate_diffs(u8 *ptr1, u8 *ptr2, u32 len, s32 *first, s32 *last);
+
 /* Init */
 
 #ifdef HAVE_AFFINITY
@@ -1437,6 +1453,14 @@ void read_argv_keywords(afl_state_t *);
 void init_argv_buf(afl_state_t *);
 u32  get_argv_id(afl_state_t *, struct queue_entry *);
 u32  get_file_id(afl_state_t *);
+void write_shrink_log(afl_state_t *afl);
+void update_all_bitmap_score(afl_state_t *afl);
+
+u8 fuzz_one_argv(afl_state_t *);
+u8 fuzz_one_comb_argv(afl_state_t *afl);
+// void shrink_corpus(afl_state_t *afl);
+
+void free_argv_bufs(afl_state_t *afl);
 
 #if TESTCASE_CACHE == 1
   #error define of TESTCASE_CACHE must be zero or larger than 1

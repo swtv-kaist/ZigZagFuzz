@@ -237,7 +237,7 @@ static u8 could_be_interest(u32 old_val, u32 new_val, u8 blen, u8 check_le) {
 /* Helper function to compare buffers; returns first and last differing offset.
    We use this to find reasonable locations for splicing two files. */
 
-static void locate_diffs(u8 *ptr1, u8 *ptr2, u32 len, s32 *first, s32 *last) {
+void locate_diffs(u8 *ptr1, u8 *ptr2, u32 len, s32 *first, s32 *last) {
   s32 f_loc = -1;
   s32 l_loc = -1;
   u32 pos;
@@ -299,7 +299,7 @@ u8 fuzz_one_original(afl_state_t *afl) {
        possibly skip to them at the expense of already-fuzzed or non-favored
        cases. */
 
-    if ((afl->queue_cur->fuzz_level || !afl->queue_cur->favored) &&
+    if ((afl->queue_cur->fuzz_level_file || !afl->queue_cur->favored) &&
         likely(rand_below(afl, 100) < SKIP_TO_NEW_PROB)) {
       return 1;
     }
@@ -311,7 +311,7 @@ u8 fuzz_one_original(afl_state_t *afl) {
        The odds of skipping stuff are higher for already-fuzzed inputs and
        lower for never-fuzzed entries. */
 
-    if (afl->queue_cycle > 1 && !afl->queue_cur->fuzz_level) {
+    if (afl->queue_cycle > 1 && !afl->queue_cur->fuzz_level_file) {
       if (likely(rand_below(afl, 100) < SKIP_NFAV_NEW_PROB)) { return 1; }
 
     } else {
@@ -3048,7 +3048,7 @@ abandon_entry:
     }
   }
 
-  ++afl->queue_cur->fuzz_level;
+  ++afl->queue_cur->fuzz_level_file;
   orig_in = NULL;
   return ret_val;
 
@@ -3091,7 +3091,7 @@ static u8 mopt_common_fuzzing(afl_state_t *afl, MOpt_globals_t MOpt_globals) {
        possibly skip to them at the expense of already-fuzzed or non-favored
        cases. */
 
-    if ((afl->queue_cur->fuzz_level || !afl->queue_cur->favored) &&
+    if ((afl->queue_cur->fuzz_level_file || !afl->queue_cur->favored) &&
         rand_below(afl, 100) < SKIP_TO_NEW_PROB) {
       return 1;
     }
@@ -3103,7 +3103,7 @@ static u8 mopt_common_fuzzing(afl_state_t *afl, MOpt_globals_t MOpt_globals) {
        The odds of skipping stuff are higher for already-fuzzed inputs and
        lower for never-fuzzed entries. */
 
-    if (afl->queue_cycle > 1 && !afl->queue_cur->fuzz_level) {
+    if (afl->queue_cycle > 1 && !afl->queue_cur->fuzz_level_file) {
       if (likely(rand_below(afl, 100) < SKIP_NFAV_NEW_PROB)) { return 1; }
 
     } else {
@@ -5403,7 +5403,7 @@ pacemaker_fuzzing:
 
   } /* block */
 
-  ++afl->queue_cur->fuzz_level;
+  ++afl->queue_cur->fuzz_level_file;
   return ret_val;
 }
 

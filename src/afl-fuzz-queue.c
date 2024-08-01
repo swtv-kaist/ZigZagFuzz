@@ -696,7 +696,7 @@ void update_bitmap_score(afl_state_t *afl, struct queue_entry *q) {
     fuzz_p2 = next_pow2(afl->n_fuzz[q->n_fuzz_entry]);
 
   } else {
-    fuzz_p2 = q->fuzz_level;
+    fuzz_p2 = q->fuzz_level_file + q->fuzz_level_argv;
   }
 
   if (unlikely(afl->schedule >= RARE) || unlikely(afl->fixed_seed)) {
@@ -723,7 +723,8 @@ void update_bitmap_score(afl_state_t *afl, struct queue_entry *q) {
               next_pow2(afl->n_fuzz[afl->top_rated[i]->n_fuzz_entry]);
 
         } else {
-          top_rated_fuzz_p2 = afl->top_rated[i]->fuzz_level;
+          top_rated_fuzz_p2 = afl->top_rated[i]->fuzz_level_file +
+                              afl->top_rated[i]->fuzz_level_argv;
         }
 
         if (unlikely(afl->schedule >= RARE) || unlikely(afl->fixed_seed)) {
@@ -951,7 +952,7 @@ u32 calculate_score(afl_state_t *afl, struct queue_entry *q) {
       n_items = 0;
 
       // Don't modify perf_score for unfuzzed seeds
-      if (!q->fuzz_level) break;
+      if ((q->fuzz_level_argv + q->fuzz_level_file) == 0) break;
 
       u32 i;
       for (i = 0; i < afl->queued_items; i++) {
@@ -976,7 +977,7 @@ u32 calculate_score(afl_state_t *afl, struct queue_entry *q) {
     case FAST:
 
       // Don't modify unfuzzed seeds
-      if (!q->fuzz_level) break;
+      if ((q->fuzz_level_argv + q->fuzz_level_file) == 0) break;
 
       switch ((u32)log2(afl->n_fuzz[q->n_fuzz_entry])) {
         case 0 ... 1:
@@ -1013,17 +1014,19 @@ u32 calculate_score(afl_state_t *afl, struct queue_entry *q) {
 
     case LIN:
       // Don't modify perf_score for unfuzzed seeds
-      if (!q->fuzz_level) break;
+      if ((q->fuzz_level_argv + q->fuzz_level_file) == 0) break;
 
-      factor = q->fuzz_level / (afl->n_fuzz[q->n_fuzz_entry] + 1);
+      factor = (q->fuzz_level_argv + q->fuzz_level_file) /
+               (afl->n_fuzz[q->n_fuzz_entry] + 1);
       break;
 
     case QUAD:
       // Don't modify perf_score for unfuzzed seeds
-      if (!q->fuzz_level) break;
+      if ((q->fuzz_level_argv + q->fuzz_level_file) == 0) break;
 
-      factor =
-          q->fuzz_level * q->fuzz_level / (afl->n_fuzz[q->n_fuzz_entry] + 1);
+      factor = (q->fuzz_level_argv + q->fuzz_level_file) *
+               (q->fuzz_level_argv + q->fuzz_level_file) /
+               (afl->n_fuzz[q->n_fuzz_entry] + 1);
       break;
 
     case MMOPT:
@@ -1193,8 +1196,8 @@ inline u8 *queue_testcase_get(afl_state_t *afl, struct queue_entry *q) {
       do_once = 1;
       // release unneeded memory
       afl->q_testcase_cache = (struct queue_entry **)ck_realloc(
-          afl->q_testcase_cache,
-          (afl->q_testcase_max_cache_entries + 1) * sizeof(size_t));
+          afl->q_testcase_cache, (afl->q_testcase_max_cache_entries + 1) *
+                                     sizeof(struct queue_entry *));
     }
 
     /* Cache full. We neet to evict one or more to map one.

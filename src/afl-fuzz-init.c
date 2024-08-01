@@ -1818,6 +1818,10 @@ static void handle_existing_out_dir(afl_state_t *afl) {
   if (unlink(fn) && errno != ENOENT) { goto dir_cleanup_failed; }
   ck_free(fn);
 
+  fn = alloc_printf("%s/shrink_log", afl->out_dir);
+  if (unlink(fn) && errno != ENOENT) { goto dir_cleanup_failed; }
+  ck_free(fn);
+
   OKF("Output dir cleanup successful.");
 
   /* Wow... is that all? If yes, celebrate! */
