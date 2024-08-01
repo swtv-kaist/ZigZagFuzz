@@ -883,6 +883,9 @@ typedef struct afl_state {
 
   u32 num_selected_file_for_mut;
   u8  mut_argv_file_all;
+  u8  select_argv;
+
+  u32 **func_exec_map;
 
 } afl_state_t;
 
@@ -1464,6 +1467,8 @@ u8   fuzz_one_comb_argv(afl_state_t *afl);
 void shrink_corpus(afl_state_t *afl);
 
 void free_argv_bufs(afl_state_t *afl);
+
+void select_argv(afl_state_t *);
 
 #if TESTCASE_CACHE == 1
   #error define of TESTCASE_CACHE must be zero or larger than 1

@@ -572,6 +572,21 @@ u8 __attribute__((hot)) save_if_interesting(afl_state_t *afl, void *mem,
       FATAL("Unable to execute target application");
     }
 
+    // Get func exec profile for POWER
+    if (!afl->interleaving && !afl->mut_argv_file_all) {
+      u32 idx1, idx2;
+      for (idx1 = 0; idx1 < FUNC_MAP_SIZE; idx1++) {
+        if (!func_map[idx1]) continue;
+        if (unlikely(afl->func_exec_map[idx1] == NULL)) {
+          afl->func_exec_map[idx1] = calloc(FUNC_MAP_SIZE, sizeof(u32));
+        }
+
+        for (idx2 = 0; idx2 < FUNC_MAP_SIZE; idx2++) {
+          afl->func_exec_map[idx1][idx2] += func_map[idx2];
+        }
+      }
+    }
+
     if (likely(afl->q_testcase_max_cache_size)) {
       if (unlikely(afl->mut_argv_file_all)) {
         u8 *tmp = malloc(len + ARGV_MAX_SIZE);

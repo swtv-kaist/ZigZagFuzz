@@ -2052,6 +2052,10 @@ int main(int argc, char **argv_orig, char **envp) {
     }
   }
 
+  afl->func_exec_map =
+      ck_realloc(afl->func_exec_map, FUNC_MAP_SIZE * sizeof(u32 *));
+  memset(afl->func_exec_map, 0, FUNC_MAP_SIZE * sizeof(u32 *));
+
   afl->argv = use_argv;
   afl->fsrv.trace_bits =
       afl_shm_init(&afl->shm, afl->fsrv.map_size, afl->non_instrumented_mode);
@@ -2696,8 +2700,26 @@ int main(int argc, char **argv_orig, char **envp) {
         afl->reinit_table = 1;
         write_shrink_log(afl);
       }
-    } else if (afl->mut_argv_file_all) {
-      // do nothing...
+    } else if (!afl->mut_argv_file_all) {
+      // POWER
+      u64 time_passed = get_cur_time() - afl->start_time;
+      if (time_passed < EXPLORATORY_TIMEOUT) {
+        if (rand_below(afl, 2)) {
+          afl->mut_file_only = 1;
+        } else {
+          afl->mut_file_only = 0;
+        }
+      } else if (unlikely(afl->select_argv == 0)) {
+        afl->select_argv = 1;
+        afl->mut_file_only = 1;
+      } else {
+        afl->mut_file_only = 1;
+      }
+    }
+
+    if (unlikely(afl->select_argv == 1)) {
+      select_argv(afl);
+      afl->select_argv = 2;
     }
 
     u64 cur_time = get_cur_time();
@@ -2917,6 +2939,13 @@ stop_fuzzing:
   ck_free(afl->fsrv.out_file);
   ck_free(afl->fsrv.out_argv);
   ck_free(afl->sync_id);
+  {
+    u32 idx;
+    for (idx = 0; idx < FUNC_MAP_SIZE; idx++) {
+      free(afl->func_exec_map[idx]);
+    }
+  }
+  ck_free(afl->func_exec_map);
   if (afl->q_testcase_cache) { ck_free(afl->q_testcase_cache); }
   afl_state_deinit(afl);
   free(afl); /* not tracked */

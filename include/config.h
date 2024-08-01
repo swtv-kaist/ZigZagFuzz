@@ -571,4 +571,6 @@
 
 #define ARGV_TRIM_LIMIT 32
 
+#define EXPLORATORY_TIMEOUT 60 * 60 * 1000
+
 #endif /* ! _HAVE_CONFIG_H */

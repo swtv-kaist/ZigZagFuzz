@@ -2153,3 +2153,277 @@ static void write_shrink_log_after(afl_state_t *afl) {
   fprintf(afl->shrink_log_f, "finish2\n");
   fflush(afl->shrink_log_f);
 }
+
+static void write_gen_argvs(afl_state_t *afl, u32 num_argvs,
+                            u32 **argv_to_queue, u32 *num_argv_to_queue) {
+  u8 file_fn[PATH_MAX];
+  snprintf(file_fn, PATH_MAX, "%s/gen_argvs", afl->out_dir);
+
+  u32 idx1, idx2;
+
+  FILE *fp = fopen(file_fn, "w");
+  if (!fp) { PFATAL("Unable to create '%s'", file_fn); }
+
+  for (idx1 = 0; idx1 < num_argvs; idx1++) {
+    struct queue_entry *q = afl->queue_buf[argv_to_queue[idx1][0]];
+    fprintf(fp, "%u: %u tcs : [", idx1, num_argv_to_queue[idx1]);
+    for (idx2 = 0; idx2 < num_argv_to_queue[idx1]; idx2++) {
+      fprintf(fp, "%u,", argv_to_queue[idx1][idx2]);
+    }
+    fprintf(fp, "]\n");
+    fwrite(q->argv, 1, q->argv_len, fp);
+    fprintf(fp, "\n");
+  }
+
+  fclose(fp);
+}
+
+void select_argv(afl_state_t *afl) {
+  u32 **argv_to_queue = afl->argv_to_queue;
+  u32   num_argvs = afl->num_argvs;
+  u32  *num_argv_to_queue = afl->argv_to_queue_cnt;
+
+  u32 idx1, idx2;
+
+  write_gen_argvs(afl, num_argvs, argv_to_queue, num_argv_to_queue);
+
+  afl->stage_name = "argv_sel1";
+  afl->stage_short = "argv_sel1";
+  afl->stage_max = num_argvs;
+
+  u32 **func_calls = (u32 **)malloc(num_argvs * sizeof(u32 *));
+  u32  *func_call_cnts = (u32 *)malloc(num_argvs * sizeof(u32));
+
+  u8 *func_map = afl->shm.func_map;
+
+  // run and get executed functions
+  for (afl->stage_cur = 0; afl->stage_cur < num_argvs; afl->stage_cur++) {
+    memset(func_map, 0, FUNC_MAP_SIZE);
+
+    for (idx1 = 0; idx1 < num_argv_to_queue[afl->stage_cur]; idx1++) {
+      u32                 tc_idx = argv_to_queue[afl->stage_cur][idx1];
+      struct queue_entry *q = afl->queue_buf[tc_idx];
+
+      u8 *in_buf = queue_testcase_get(afl, q);
+      write_argv_file(afl, q->argv, q->argv_len);
+      (void)write_to_testcase(afl, (void **)&in_buf, q->len, 1);
+      (void)fuzz_run_target(afl, &afl->fsrv, afl->fsrv.exec_tmout);
+    }
+
+    u32  called_funcs_size = 512;
+    u32 *called_funcs = (u32 *)malloc(sizeof(u32) * 512);
+    u32  called_funcs_cnt = 0;
+
+    for (idx2 = 0; idx2 < FUNC_MAP_SIZE; idx2++) {
+      if (func_map[idx2] == 0) { continue; }
+
+      called_funcs[called_funcs_cnt++] = idx2;
+
+      if (unlikely(called_funcs_cnt == called_funcs_size)) {
+        called_funcs_size *= 2;
+        called_funcs =
+            (u32 *)realloc(called_funcs, sizeof(u32) * called_funcs_size);
+      }
+
+      if (unlikely(afl->func_exec_map[idx2] == NULL)) {
+        afl->func_exec_map[idx2] = (u32 *)calloc(FUNC_MAP_SIZE, sizeof(u32));
+      }
+    }
+
+    func_calls[afl->stage_cur] = called_funcs;
+    func_call_cnts[afl->stage_cur] = called_funcs_cnt;
+
+    show_stats(afl);
+  }
+
+  float **argv_rel = (float **)malloc(sizeof(float *) * num_argvs);
+  for (idx1 = 0; idx1 < num_argvs; idx1++) {
+    argv_rel[idx1] = (float *)calloc(num_argvs, sizeof(float));
+  }
+
+  float rel_total_sum = 0.0;
+
+  u32 **func_exec_map = afl->func_exec_map;
+
+  afl->stage_name = "argv_sel2";
+  afl->stage_short = "argv_sel2";
+  afl->stage_max = num_argvs;
+
+  u32 argv_1, argv_2;
+  for (argv_1 = 0; argv_1 < num_argvs; argv_1++) {
+    afl->stage_cur = argv_1;
+    float *tmp = argv_rel[argv_1];
+    u32   *argv1_func_calls = func_calls[argv_1];
+    u32    num_argv1_func_calls = func_call_cnts[argv_1];
+
+    for (argv_2 = argv_1 + 1; argv_2 < num_argvs; argv_2++) {
+      float rel_sum = 0.0;
+      u32  *argv2_func_call = func_calls[argv_2];
+      u32   num_argv2_func_calls = func_call_cnts[argv_2];
+
+      for (idx1 = 0; idx1 < num_argv1_func_calls; idx1++) {
+        u32   func_idx1 = argv1_func_calls[idx1];
+        float func_idx1_count = (float)func_exec_map[func_idx1][func_idx1];
+        if (unlikely(func_idx1_count == 0.0)) func_idx1_count = 1.0;
+
+        for (idx2 = 0; idx2 < num_argv2_func_calls; idx2++) {
+          u32   func_idx2 = argv2_func_call[idx2];
+          float idx1_idx2_count = (float)func_exec_map[func_idx1][func_idx2];
+          float idx2_idx2_count = (float)func_exec_map[func_idx2][func_idx2];
+          if (unlikely(idx2_idx2_count == 0.0)) idx2_idx2_count = 1.0;
+
+          rel_sum += idx1_idx2_count * idx1_idx2_count / func_idx1_count /
+                     idx2_idx2_count;
+        }
+      }
+
+      float rel_res =
+          rel_sum / ((float)num_argv1_func_calls * (float)num_argv2_func_calls);
+      tmp[argv_2] = argv_rel[argv_2][argv_1] = rel_res;
+      rel_total_sum += 2.0 * rel_res;
+    }
+
+    show_stats(afl);
+  }
+
+  u8 file_fn[PATH_MAX];
+  snprintf(file_fn, PATH_MAX, "%s/power/argv_rels", afl->out_dir);
+  FILE *fp = fopen(file_fn, "w");
+  if (fp == NULL) { PFATAL("Unable to create '%s'", file_fn); }
+
+  float threshold =
+      rel_total_sum / (((float)num_argvs) * ((float)(num_argvs - 1)));
+
+  fprintf(fp, "Avg : %0.4f\n", threshold);
+
+  u32 histogram[21];
+  memset(histogram, 0, sizeof(u32) * 21);
+
+  for (idx1 = 0; idx1 < num_argvs; idx1++) {
+    for (idx2 = 0; idx2 < num_argvs; idx2++) {
+      u32 hist_idx = (u32)(argv_rel[idx1][idx2] * 20.0);
+      histogram[hist_idx] += 1;
+    }
+  }
+
+  for (idx1 = 0; idx1 < 20; idx1++) {
+    fprintf(fp, "(%0.2f~%0.2f] : %u\n", ((float)idx1) / 20.0,
+            ((float)idx1 + 1) / 20.0, histogram[idx1]);
+  }
+
+  fclose(fp);
+
+  u8  *selected_argvs_bits = (u8 *)calloc(num_argvs, sizeof(u8));
+  u32 *selected_argvs = (u32 *)malloc(sizeof(u32) * num_argvs);
+  u32  rand_1 = rand_below(afl, num_argvs);
+  u32  rand_2 = rand_below(afl, num_argvs);
+  while (rand_1 == rand_2) {
+    rand_2 = rand_below(afl, num_argvs);
+  }
+  selected_argvs_bits[rand_1] = 1;
+  selected_argvs_bits[rand_2] = 1;
+  selected_argvs[0] = rand_1;
+  selected_argvs[1] = rand_2;
+  u32 num_selected = 2;
+
+  for (idx1 = 0; idx1 < num_argvs; idx1++) {
+    if (selected_argvs_bits[idx1]) continue;
+
+    bool is_close = false;
+    for (idx2 = 0; idx2 < num_selected; idx2++) {
+      if (argv_rel[idx1][selected_argvs[idx2]] > threshold) {
+        is_close = true;
+        break;
+      }
+    }
+
+    if (is_close) { continue; }
+
+    selected_argvs[num_selected++] = idx1;
+    selected_argvs_bits[idx1] = 1;
+  }
+
+  for (idx1 = 0; idx1 < num_argvs; idx1++) {
+    free(argv_rel[idx1]);
+  }
+  free(argv_rel);
+
+  snprintf(file_fn, PATH_MAX, "%s/power/selected_argvs", afl->out_dir);
+  fp = fopen(file_fn, "w");
+  if (fp == NULL) { PFATAL("Unable to create '%s'", file_fn); }
+
+  fprintf(fp, "# of selected : %u\n", num_selected);
+  for (idx1 = 0; idx1 < num_selected; idx1++) {
+    fprintf(fp, "%u,", selected_argvs[idx1]);
+    struct queue_entry *q =
+        afl->queue_buf[argv_to_queue[selected_argvs[idx1]][0]];
+    fwrite(q->argv, 1, q->argv_len, fp);
+    fprintf(fp, "\n");
+  }
+
+  fclose(fp);
+
+  for (idx1 = 0; idx1 < num_argvs; idx1++) {
+    free(func_calls[idx1]);
+  }
+  free(func_calls);
+  free(func_call_cnts);
+
+  free(selected_argvs);
+
+  for (idx1 = 0; idx1 < afl->queued_items; idx1++) {
+    struct queue_entry *q = afl->queue_buf[idx1];
+    q->favored = false;
+    q->perf_score = 0.0;
+    q->weight = 0.0;
+    q->disabled = 1;
+  }
+
+  for (idx1 = 0; idx1 < num_argvs; idx1++) {
+    if (selected_argvs_bits[idx1] == 0) continue;
+
+    for (idx2 = 0; idx2 < num_argv_to_queue[idx1]; idx2++) {
+      struct queue_entry *q = afl->queue_buf[argv_to_queue[idx1][idx2]];
+      q->disabled = false;
+    }
+  }
+
+  free(selected_argvs_bits);
+
+  afl->reinit_table = 1;
+  afl->queued_favored = 0;
+  afl->pending_favored = 0;
+  afl->score_changed = 1;
+  return;
+}
+
+void get_func_rel(afl_state_t *afl) {
+  u32                 idx1, idx2, idx3;
+  struct queue_entry *q;
+  u8                 *func_map = afl->shm.func_map;
+  u8                 *in_buf;
+
+  for (idx1 = 0; idx1 < afl->queued_items; idx1++) {
+    q = afl->queue_buf[idx1];
+
+    memset(func_map, 0, FUNC_MAP_SIZE);
+    in_buf = queue_testcase_get(afl, q);
+    write_argv_file(afl, q->argv, q->argv_len);
+    (void)write_to_testcase(afl, (void **)&in_buf, q->len, 1);
+    (void)fuzz_run_target(afl, &afl->fsrv, afl->fsrv.exec_tmout);
+
+    for (idx2 = 0; idx2 < FUNC_MAP_SIZE; idx2++) {
+      if (func_map[idx2] == 0) { continue; }
+
+      if (unlikely(afl->func_exec_map[idx2] == NULL)) {
+        afl->func_exec_map[idx2] = calloc(FUNC_MAP_SIZE, sizeof(u32));
+      }
+
+      for (idx3 = 0; idx3 < FUNC_MAP_SIZE; idx3++) {
+        afl->func_exec_map[idx2][idx3] += func_map[idx3];
+      }
+    }
+  }
+
+  ACTF("Got func releavance info");
+}
