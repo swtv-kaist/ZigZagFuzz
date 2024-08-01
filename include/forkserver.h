@@ -60,7 +60,6 @@ typedef enum NyxProcessRole {
 } NyxProcessRole;
 
 typedef struct {
-
   void *(*nyx_config_load)(const char *sharedir);
   void (*nyx_config_set_workdir_path)(void *config, const char *workdir);
   void (*nyx_config_set_input_buffer_size)(void    *config,
@@ -97,79 +96,79 @@ nyx_plugin_handler_t *afl_load_libnyx_plugin(u8 *libnyx_binary);
 #endif
 
 typedef struct afl_forkserver {
-
   /* a program that includes afl-forkserver needs to define these */
 
-  u8 *trace_bits;                       /* SHM with instrumentation bitmap  */
+  u8 *trace_bits; /* SHM with instrumentation bitmap  */
 
-  s32 fsrv_pid,                         /* PID of the fork server           */
-      child_pid,                        /* PID of the fuzzed program        */
-      child_status,                     /* waitpid result for the child     */
-      out_dir_fd;                       /* FD of the lock file              */
+  s32 fsrv_pid,     /* PID of the fork server           */
+      child_pid,    /* PID of the fuzzed program        */
+      child_status, /* waitpid result for the child     */
+      out_dir_fd;   /* FD of the lock file              */
 
-  s32 out_fd,                           /* Persistent fd for fsrv->out_file */
-      dev_urandom_fd,                   /* Persistent fd for /dev/urandom   */
+  s32 out_fd,         /* Persistent fd for fsrv->out_file */
+      dev_urandom_fd, /* Persistent fd for /dev/urandom   */
 
-      dev_null_fd,                      /* Persistent fd for /dev/null      */
-      fsrv_ctl_fd,                      /* Fork server control pipe (write) */
-      fsrv_st_fd;                       /* Fork server status pipe (read)   */
+      dev_null_fd, /* Persistent fd for /dev/null      */
+      fsrv_ctl_fd, /* Fork server control pipe (write) */
+      fsrv_st_fd;  /* Fork server status pipe (read)   */
 
-  u32 exec_tmout;                       /* Configurable exec timeout (ms)   */
-  u32 init_tmout;                       /* Configurable init timeout (ms)   */
-  u32 map_size;                         /* map size used by the target      */
-  u32 real_map_size;                    /* real map size, unaligned         */
-  u32 snapshot;                         /* is snapshot feature used         */
-  u64 mem_limit;                        /* Memory cap for child (MB)        */
+  u32 exec_tmout;    /* Configurable exec timeout (ms)   */
+  u32 init_tmout;    /* Configurable init timeout (ms)   */
+  u32 map_size;      /* map size used by the target      */
+  u32 real_map_size; /* real map size, unaligned         */
+  u32 snapshot;      /* is snapshot feature used         */
+  u64 mem_limit;     /* Memory cap for child (MB)        */
 
-  u64 total_execs;                      /* How often run_target was called  */
+  u64 total_execs; /* How often run_target was called  */
 
-  u8 *out_file,                         /* File to fuzz, if any             */
-      *target_path;                     /* Path of the target               */
+  u8 *out_file,     /* File to fuzz, if any             */
+      *out_argv,    /* argv fuzzed                      */
+      *target_path; /* Path of the target               */
 
-  FILE *plot_file,                      /* Gnuplot output file              */
+  FILE *plot_file, /* Gnuplot output file              */
       *det_plot_file;
 
   /* Note: last_run_timed_out is u32 to send it to the child as 4 byte array */
-  u32 last_run_timed_out;               /* Traced process timed out?        */
+  u32 last_run_timed_out; /* Traced process timed out?        */
 
-  u8 last_kill_signal;                  /* Signal that killed the child     */
+  u8 last_kill_signal; /* Signal that killed the child     */
 
-  bool use_shmem_fuzz;                  /* use shared mem for test cases    */
+  bool use_shmem_fuzz; /* use shared mem for test cases    */
 
-  bool support_shmem_fuzz;              /* set by afl-fuzz                  */
+  bool support_shmem_fuzz; /* set by afl-fuzz                  */
 
-  bool use_fauxsrv;                     /* Fauxsrv for non-forking targets? */
+  bool use_fauxsrv; /* Fauxsrv for non-forking targets? */
 
-  bool qemu_mode;                       /* if running in qemu mode or not   */
+  bool qemu_mode; /* if running in qemu mode or not   */
 
-  bool frida_mode;                     /* if running in frida mode or not   */
+  bool frida_mode; /* if running in frida mode or not   */
 
-  bool frida_asan;                    /* if running with asan in frida mode */
+  bool frida_asan; /* if running with asan in frida mode */
 
-  bool cs_mode;                      /* if running in CoreSight mode or not */
+  bool cs_mode; /* if running in CoreSight mode or not */
 
-  bool use_stdin;                       /* use stdin for sending data       */
+  bool use_stdin; /* use stdin for sending data       */
 
-  bool no_unlink;                       /* do not unlink cur_input          */
+  bool no_unlink; /* do not unlink cur_input          */
 
-  bool uses_asan;                       /* Target uses ASAN?                */
+  bool uses_asan; /* Target uses ASAN?                */
 
-  bool debug;                           /* debug mode?                      */
+  bool debug; /* debug mode?                      */
 
-  bool uses_crash_exitcode;             /* Custom crash exitcode specified? */
-  u8   crash_exitcode;                  /* The crash exitcode specified     */
+  bool uses_crash_exitcode; /* Custom crash exitcode specified? */
+  u8   crash_exitcode;      /* The crash exitcode specified     */
 
-  u32 *shmem_fuzz_len;                  /* length of the fuzzing test case  */
+  u32 *shmem_fuzz_len; /* length of the fuzzing test case  */
 
-  u8 *shmem_fuzz;                       /* allocated memory for fuzzing     */
+  u8 *shmem_fuzz; /* allocated memory for fuzzing     */
 
-  char *cmplog_binary;                  /* the name of the cmplog binary    */
+  char *cmplog_binary; /* the name of the cmplog binary    */
 
   /* persistent mode replay functionality */
-  u32 persistent_record;                /* persistent replay setting        */
+  u32 persistent_record; /* persistent replay setting        */
 #ifdef AFL_PERSISTENT_RECORD
-  u32  persistent_record_idx;           /* persistent replay cache ptr      */
-  u32  persistent_record_cnt;           /* persistent replay counter        */
+  u32  persistent_record_idx; /* persistent replay cache ptr      */
+  u32  persistent_record_cnt; /* persistent replay counter        */
   u8  *persistent_record_dir;
   u8 **persistent_record_data;
   u32 *persistent_record_len;
@@ -179,7 +178,7 @@ typedef struct afl_forkserver {
   /* Function to kick off the forkserver child */
   void (*init_child_func)(struct afl_forkserver *fsrv, char **argv);
 
-  u8 *afl_ptr;                          /* for autodictionary: afl ptr      */
+  u8 *afl_ptr; /* for autodictionary: afl ptr      */
 
   void (*add_extra_func)(void *afl_ptr, u8 *mem, u32 len);
 
@@ -207,7 +206,7 @@ typedef struct afl_forkserver {
 #endif
 
 #ifdef __AFL_CODE_COVERAGE
-  u8 *persistent_trace_bits;                   /* Persistent copy of bitmap */
+  u8 *persistent_trace_bits; /* Persistent copy of bitmap */
 #endif
 
   void *custom_data_ptr;
@@ -256,7 +255,6 @@ void              afl_fsrv_kill(afl_forkserver_t *fsrv);
   #define MSG_ULIMIT_USAGE "      ( ulimit -Sv $[%llu << 10];"
 #else
   #define MSG_ULIMIT_USAGE "      ( ulimit -Sd $[%llu << 10];"
-#endif                                                        /* ^RLIMIT_AS */
+#endif /* ^RLIMIT_AS */
 
 #endif
-

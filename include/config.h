@@ -548,4 +548,6 @@
 #define MAX_CMDLINE_LEN 100000
 #define MAX_CMDLINE_PAR 50000
 
+#define ARGV_MAX_SIZE 256
+
 #endif /* ! _HAVE_CONFIG_H */
