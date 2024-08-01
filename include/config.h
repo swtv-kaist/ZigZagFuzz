@@ -569,4 +569,6 @@
 #define NUM_FILE_CLUSTERS 800
 #define NUM_SEL_IN_FILE_CLUSTER 2
 
+#define ARGV_TRIM_LIMIT 32
+
 #endif /* ! _HAVE_CONFIG_H */

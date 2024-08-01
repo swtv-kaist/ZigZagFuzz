@@ -949,10 +949,14 @@ int main(int argc, char **argv_orig, char **envp) {
         afl->in_bitmap = optarg;
         break;
 
-      case 'C': /* crash mode */
+        // case 'C': /* crash mode */
 
-        if (afl->crash_mode) { FATAL("Multiple -C options not supported"); }
-        afl->crash_mode = FSRV_RUN_CRASH;
+        //   if (afl->crash_mode) { FATAL("Multiple -C options not supported");
+        //   } afl->crash_mode = FSRV_RUN_CRASH; break;
+
+      case 'C':
+        // concat, afl++-all
+        afl->mut_argv_file_all = 1;
         break;
 
       case 'n': /* dumb mode */
@@ -2692,6 +2696,8 @@ int main(int argc, char **argv_orig, char **envp) {
         afl->reinit_table = 1;
         write_shrink_log(afl);
       }
+    } else if (afl->mut_argv_file_all) {
+      // do nothing...
     }
 
     u64 cur_time = get_cur_time();

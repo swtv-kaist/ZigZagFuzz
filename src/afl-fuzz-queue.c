@@ -1090,6 +1090,8 @@ inline void queue_testcase_retake(afl_state_t *afl, struct queue_entry *q,
   if (likely(q->testcase_buf)) {
     u32 len = q->len;
 
+    if (afl->mut_argv_file_all) { len += ARGV_MAX_SIZE; }
+
     // only realloc if necessary or useful
     // (a custom trim can make the testcase larger)
     if (unlikely(len > old_len || len < old_len + 1024)) {
@@ -1101,12 +1103,25 @@ inline void queue_testcase_retake(afl_state_t *afl, struct queue_entry *q,
       }
     }
 
-    int fd = open((char *)q->fname, O_RDONLY);
+    if (afl->mut_argv_file_all) {
+      int fd = open(q->argv_fn, O_RDONLY);
+      if (unlikely(fd < 0)) { PFATAL("Unable to open '%s'", q->argv_fn); }
+      ck_read(fd, q->testcase_buf, ARGV_MAX_SIZE, q->argv_fn);
+      close(fd);
 
-    if (unlikely(fd < 0)) { PFATAL("Unable to open '%s'", (char *)q->fname); }
+      fd = open(q->fname, O_RDONLY);
+      if (unlikely(fd < 0)) { PFATAL("Unable to open '%s'", q->fname); }
+      ck_read(fd, q->testcase_buf + ARGV_MAX_SIZE, len - ARGV_MAX_SIZE,
+              q->fname);
+      close(fd);
+    } else {
+      int fd = open(q->fname, O_RDONLY);
 
-    ck_read(fd, q->testcase_buf, len, q->fname);
-    close(fd);
+      if (unlikely(fd < 0)) { PFATAL("Unable to open '%s'", q->fname); }
+
+      ck_read(fd, q->testcase_buf, len, q->fname);
+      close(fd);
+    }
   }
 }
 
@@ -1140,6 +1155,8 @@ inline u8 *queue_testcase_get(afl_state_t *afl, struct queue_entry *q) {
   u32    len = q->len;
   double weight = q->weight;
 
+  if (unlikely(afl->mut_argv_file_all)) { len += ARGV_MAX_SIZE; }
+
   // first handle if no testcase cache is configured, or if the
   // weighting of the testcase is below average.
 
@@ -1155,6 +1172,19 @@ inline u8 *queue_testcase_get(afl_state_t *afl, struct queue_entry *q) {
 
     if (unlikely(!buf)) {
       PFATAL("Unable to malloc '%s' with len %u", (char *)q->fname, len);
+    }
+
+    if (unlikely(afl->mut_argv_file_all)) {
+      int fd = open(q->argv_fn, O_RDONLY);
+      if (unlikely(fd < 0)) { PFATAL("Unable to open '%s'", q->argv_fn); }
+      ck_read(fd, buf, ARGV_MAX_SIZE, q->argv_fn);
+      close(fd);
+
+      fd = open(q->fname, O_RDONLY);
+      if (unlikely(fd < 0)) { PFATAL("Unable to open '%s'", q->fname); }
+      ck_read(fd, buf + ARGV_MAX_SIZE, q->len, q->fname);
+      close(fd);
+      return buf;
     }
 
     int fd = open((char *)q->fname, O_RDONLY);
@@ -1211,13 +1241,18 @@ inline u8 *queue_testcase_get(afl_state_t *afl, struct queue_entry *q) {
       tid = rand_below(afl, afl->q_testcase_max_cache_count);
 
     } while (afl->q_testcase_cache[tid] == NULL ||
-
              afl->q_testcase_cache[tid] == afl->queue_cur);
 
     struct queue_entry *old_cached = afl->q_testcase_cache[tid];
     free(old_cached->testcase_buf);
     old_cached->testcase_buf = NULL;
-    afl->q_testcase_cache_size -= old_cached->len;
+
+    if (afl->mut_argv_file_all) {
+      afl->q_testcase_cache_size -= old_cached->len + ARGV_MAX_SIZE;
+    } else {
+      afl->q_testcase_cache_size -= old_cached->len;
+    }
+
     afl->q_testcase_cache[tid] = NULL;
     --afl->q_testcase_cache_count;
     ++afl->q_testcase_evictions;
@@ -1237,18 +1272,28 @@ inline u8 *queue_testcase_get(afl_state_t *afl, struct queue_entry *q) {
 
   /* Map the test case into memory. */
 
-  int fd = open((char *)q->fname, O_RDONLY);
-
-  if (unlikely(fd < 0)) { PFATAL("Unable to open '%s'", (char *)q->fname); }
-
-  q->testcase_buf = (u8 *)malloc(len);
+  q->testcase_buf = malloc(len);
 
   if (unlikely(!q->testcase_buf)) {
-    PFATAL("Unable to malloc '%s' with len %u", (char *)q->fname, len);
+    PFATAL("Unable to malloc '%s' with len %u", q->fname, len);
   }
 
-  ck_read(fd, q->testcase_buf, len, q->fname);
-  close(fd);
+  if (unlikely(afl->mut_argv_file_all)) {
+    int fd = open(q->argv_fn, O_RDONLY);
+    if (unlikely(fd < 0)) { PFATAL("Unable to open '%s'", q->argv_fn); }
+    ck_read(fd, q->testcase_buf, ARGV_MAX_SIZE, q->argv_fn);
+    close(fd);
+
+    fd = open(q->fname, O_RDONLY);
+    if (unlikely(fd < 0)) { PFATAL("Unable to open '%s'", q->fname); }
+    ck_read(fd, q->testcase_buf + ARGV_MAX_SIZE, q->len, q->fname);
+    close(fd);
+  } else {
+    int fd = open(q->fname, O_RDONLY);
+    if (unlikely(fd < 0)) { PFATAL("Unable to open '%s'", q->fname); }
+    ck_read(fd, q->testcase_buf, len, q->fname);
+    close(fd);
+  }
 
   /* Register testcase as cached */
   afl->q_testcase_cache[tid] = q;
@@ -1269,6 +1314,8 @@ inline u8 *queue_testcase_get(afl_state_t *afl, struct queue_entry *q) {
 inline void queue_testcase_store_mem(afl_state_t *afl, struct queue_entry *q,
                                      u8 *mem) {
   u32 len = q->len;
+
+  if (unlikely(afl->mut_argv_file_all)) { len += ARGV_MAX_SIZE; }
 
   if (unlikely(q->weight < 1.0 ||
                afl->q_testcase_cache_size + len >=

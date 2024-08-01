@@ -606,6 +606,8 @@ void read_testcases(afl_state_t *afl, u8 *directory, char **argv) {
 
   default_argv[cur_argv_len++] = 0;
 
+  if (afl->mut_argv_file_all) { cur_argv_len = ARGV_MAX_SIZE; }
+
   /* Auto-detect non-in-place resumption attempts. */
 
   if (dir == NULL) {
@@ -796,10 +798,26 @@ void perform_dry_run(afl_state_t *afl) {
     if (fd < 0) { PFATAL("Unable to open '%s'", q->fname); }
 
     u32 read_len = MIN(q->len, (u32)MAX_FILE);
-    use_mem = afl_realloc(AFL_BUF_PARAM(in), read_len);
-    ck_read(fd, use_mem, read_len, q->fname);
 
-    close(fd);
+    if (afl->mut_argv_file_all) {
+      use_mem = afl_realloc(AFL_BUF_PARAM(in), read_len + ARGV_MAX_SIZE);
+
+      fd = open(q->argv_fn, O_RDONLY);
+      if (fd < 0) { PFATAL("Unable to open '%s'", q->argv_fn); }
+      ck_read(fd, use_mem, q->argv_len, q->argv_fn);
+      close(fd);
+
+      fd = open(q->fname, O_RDONLY);
+      if (fd < 0) { PFATAL("Unable to open '%s'", q->fname); }
+      ck_read(fd, use_mem + ARGV_MAX_SIZE, read_len, q->fname);
+      close(fd);
+    } else {
+      use_mem = afl_realloc(AFL_BUF_PARAM(in), read_len);
+      fd = open(q->fname, O_RDONLY);
+      if (fd < 0) { PFATAL("Unable to open '%s'", q->fname); }
+      ck_read(fd, use_mem, read_len, q->fname);
+      close(fd);
+    }
 
     res = calibrate_case(afl, q, use_mem, 0, 1);
 

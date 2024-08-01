@@ -394,6 +394,54 @@ void write_stats_file(afl_state_t *afl, u32 t_bytes, double bitmap_cvg,
 
   fclose(f);
   rename(fn_tmp, fn_final);
+
+  snprintf(fn_tmp, PATH_MAX, "%s/stage_finds", afl->out_dir);
+  f = fopen(fn_tmp, "w");
+  if (!f) { return; }
+
+  fprintf(f, "havoc argv find : %llu/%llu : %0.2f%%\n",
+          afl->stage_finds[STAGE_HAVOC_ARGV],
+          afl->stage_cycles[STAGE_HAVOC_ARGV],
+          (double)afl->stage_finds[STAGE_HAVOC_ARGV] * 100 /
+              (afl->stage_cycles[STAGE_HAVOC_ARGV]
+                   ? afl->stage_cycles[STAGE_HAVOC_ARGV]
+                   : 1));
+
+  fprintf(f, "splice argv find : %llu/%llu : %0.2f%%\n\n",
+          afl->stage_finds[STAGE_SPLICE_ARGV],
+          afl->stage_cycles[STAGE_SPLICE_ARGV],
+          (double)afl->stage_finds[STAGE_SPLICE_ARGV] * 100 /
+              (afl->stage_cycles[STAGE_SPLICE_ARGV]
+                   ? afl->stage_cycles[STAGE_SPLICE_ARGV]
+                   : 1));
+
+  fprintf(f, "havoc argv comb finds : %llu/%llu : %0.2f%%\n",
+          afl->stage_finds[STAGE_ARGV_COMB], afl->stage_cycles[STAGE_ARGV_COMB],
+          (double)afl->stage_finds[STAGE_ARGV_COMB] * 100 /
+              (afl->stage_cycles[STAGE_ARGV_COMB]
+                   ? afl->stage_cycles[STAGE_ARGV_COMB]
+                   : 1));
+
+  fprintf(f, "havoc file find : %llu/%llu : %0.2f%%\n",
+          afl->stage_finds[STAGE_HAVOC], afl->stage_cycles[STAGE_HAVOC],
+          (double)afl->stage_finds[STAGE_HAVOC] * 100 /
+              (afl->stage_cycles[STAGE_HAVOC] ? afl->stage_cycles[STAGE_HAVOC]
+                                              : 1));
+  fprintf(f, "splice file find : %llu/%llu : %0.2f%%\n\n",
+          afl->stage_finds[STAGE_SPLICE], afl->stage_cycles[STAGE_SPLICE],
+          (double)afl->stage_finds[STAGE_SPLICE] * 100 /
+              (afl->stage_cycles[STAGE_SPLICE] ? afl->stage_cycles[STAGE_SPLICE]
+                                               : 1));
+
+  fprintf(f, "argv file crossover finds : %llu/%llu : %0.2f%%\n",
+          afl->stage_finds[STAGE_ARGV_FILE_CROSS],
+          afl->stage_cycles[STAGE_ARGV_FILE_CROSS],
+          (double)afl->stage_finds[STAGE_ARGV_FILE_CROSS] * 100 /
+              (afl->stage_cycles[STAGE_ARGV_FILE_CROSS]
+                   ? afl->stage_cycles[STAGE_ARGV_FILE_CROSS]
+                   : 1));
+  fclose(f);
+  return;
 }
 
 #ifdef INTROSPECTION
@@ -1070,10 +1118,8 @@ void show_stats_normal(afl_state_t *afl) {
   }
 
   SAYF(bV bSTOP "  dictionary : " cRST "%-36s " bSTG bV bSTOP
-                "  imported : " cRST "%-10s" bSTG bV "\n",
-       tmp,
-       afl->sync_id ? u_stringify_int(IB(0), afl->queued_imported)
-                    : (u8 *)"n/a");
+                "  argvs    : " cRST "%-10s" bSTG bV "\n",
+       tmp, u_stringify_int(IB(0), afl->num_argvs));
 
   sprintf(tmp, "%s/%s, %s/%s",
           u_stringify_int(IB(0), afl->stage_finds[STAGE_HAVOC]),

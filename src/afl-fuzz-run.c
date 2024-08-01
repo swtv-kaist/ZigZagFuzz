@@ -793,6 +793,12 @@ u8 trim_case(afl_state_t *afl, struct queue_entry *q, u8 *in_buf) {
   u8  needs_write = 0, fault = 0;
   u32 orig_len = q->len;
   u64 trim_start_us = get_cur_time_us();
+
+  if (afl->mut_argv_file_all) {
+    if (orig_len <= ARGV_MAX_SIZE * ARGV_TRIM_LIMIT) { return 0; }
+    orig_len += ARGV_MAX_SIZE;
+  }
+
   /* Custom mutator trimmer */
   if (afl->custom_mutators_count) {
     u8   trimmed_case = 0;
@@ -831,13 +837,15 @@ u8 trim_case(afl_state_t *afl, struct queue_entry *q, u8 *in_buf) {
   }
 
   afl->stage_name = afl->stage_name_buf;
-  afl->bytes_trim_in += q->len;
+  afl->bytes_trim_in += orig_len;
 
   /* Select initial chunk len, starting with large steps. */
 
-  len_p2 = next_pow2(q->len);
+  len_p2 = next_pow2(orig_len);
 
   remove_len = MAX(len_p2 / TRIM_START_STEPS, (u32)TRIM_MIN_BYTES);
+
+  u32 total_len = orig_len;
 
   /* Continue until the number of steps gets too high or the stepover
      gets too small. */
@@ -850,13 +858,38 @@ u8 trim_case(afl_state_t *afl, struct queue_entry *q, u8 *in_buf) {
             u_stringify_int(val_bufs[1], remove_len));
 
     afl->stage_cur = 0;
-    afl->stage_max = q->len / remove_len;
+    afl->stage_max = total_len / remove_len;
 
-    while (remove_pos < q->len) {
-      u32 trim_avail = MIN(remove_len, q->len - remove_pos);
+    if (afl->mut_argv_file_all) {
+      if (total_len - remove_len <= ARGV_MAX_SIZE * ARGV_TRIM_LIMIT) {
+        remove_len >>= 1;
+        continue;
+      }
+    }
+
+    while (remove_pos < total_len) {
+      u32 trim_avail = MIN(remove_len, total_len - remove_pos);
       u64 cksum;
 
-      write_with_gap(afl, in_buf, q->len, remove_pos, trim_avail);
+      if (afl->mut_argv_file_all) {
+        if ((total_len - trim_avail) <= ARGV_MAX_SIZE * ARGV_TRIM_LIMIT) {
+          break;
+        }
+
+        u8 *tmp = malloc(total_len - trim_avail);
+
+        memcpy(tmp, in_buf, remove_pos);
+        memcpy(tmp + remove_pos, in_buf + remove_pos + trim_avail,
+               total_len - remove_pos - trim_avail);
+
+        write_argv_file(afl, tmp, ARGV_MAX_SIZE);
+
+        u8 *tmp2 = in_buf + ARGV_MAX_SIZE;
+        write_to_testcase(afl, (void **)&tmp2, total_len - ARGV_MAX_SIZE, 0);
+        free(tmp);
+      } else {
+        write_with_gap(afl, in_buf, total_len, remove_pos, trim_avail);
+      }
 
       fault = fuzz_run_target(afl, &afl->fsrv, afl->fsrv.exec_tmout);
 
@@ -877,16 +910,30 @@ u8 trim_case(afl_state_t *afl, struct queue_entry *q, u8 *in_buf) {
          negatives every now and then. */
 
       if (cksum == q->exec_cksum) {
-        u32 move_tail = q->len - remove_pos - trim_avail;
+        if (afl->mut_argv_file_all) {
+          u32 move_tail = total_len - remove_pos - trim_avail;
 
-        q->len -= trim_avail;
-        len_p2 = next_pow2(q->len);
+          q->len -= trim_avail;
+          total_len -= trim_avail;
+          len_p2 = next_pow2(total_len);
 
-        memmove(in_buf + remove_pos, in_buf + remove_pos + trim_avail,
-                move_tail);
+          memmove(in_buf + remove_pos, in_buf + remove_pos + trim_avail,
+                  move_tail);
+        } else {
+          u32 move_tail = q->len - remove_pos - trim_avail;
+
+          q->len -= trim_avail;
+          len_p2 = next_pow2(q->len);
+
+          memmove(in_buf + remove_pos, in_buf + remove_pos + trim_avail,
+                  move_tail);
+
+          total_len = q->len;
+        }
 
         /* Let's save a clean trace, which will be needed by
-           update_bitmap_score once we're done with the trimming stuff. */
+            update_bitmap_score once we're done with the trimming stuff. */
+
         if (!needs_write) {
           needs_write = 1;
           memcpy(afl->clean_trace, afl->fsrv.trace_bits, afl->fsrv.map_size);
@@ -957,28 +1004,63 @@ u8 trim_case(afl_state_t *afl, struct queue_entry *q, u8 *in_buf) {
     s32 fd;
 
     if (unlikely(afl->no_unlink)) {
-      fd = open(q->fname, O_WRONLY | O_CREAT | O_TRUNC, DEFAULT_PERMISSION);
+      if (unlikely(afl->mut_argv_file_all)) {
+        fd = open(q->argv_fn, O_WRONLY | O_CREAT | O_TRUNC, 0600);
+        if (fd < 0) PFATAL("Unable to create '%s'", q->argv_fn);
 
-      if (fd < 0) { PFATAL("Unable to create '%s'", q->fname); }
+        ck_write(fd, in_buf, ARGV_MAX_SIZE, q->argv_fn);
+        close(fd);
 
-      u32 written = 0;
-      while (written < q->len) {
-        ssize_t result = write(fd, in_buf, q->len - written);
-        if (result > 0) written += result;
+        fd = open(q->fname, O_WRONLY | O_CREAT | O_TRUNC, DEFAULT_PERMISSION);
+
+        if (fd < 0) { PFATAL("Unable to create '%s'", q->fname); }
+
+        ck_write(fd, in_buf + ARGV_MAX_SIZE, q->len, q->fname);
+
+      } else {
+        fd = open(q->fname, O_WRONLY | O_CREAT | O_TRUNC, DEFAULT_PERMISSION);
+
+        if (fd < 0) { PFATAL("Unable to create '%s'", q->fname); }
+
+        u32 written = 0;
+        while (written < q->len) {
+          ssize_t result = write(fd, in_buf, q->len - written);
+          if (result > 0) written += result;
+        }
       }
-
     } else {
-      unlink(q->fname); /* ignore errors */
-      fd = open(q->fname, O_WRONLY | O_CREAT | O_EXCL, DEFAULT_PERMISSION);
+      if (afl->mut_argv_file_all) {
+        unlink(q->argv_fn);
 
-      if (fd < 0) { PFATAL("Unable to create '%s'", q->fname); }
+        fd = open(q->argv_fn, O_WRONLY | O_CREAT | O_TRUNC, DEFAULT_PERMISSION);
+        if (fd < 0) { PFATAL("Unable to create '%s'", q->argv_fn); }
+        ck_write(fd, in_buf, ARGV_MAX_SIZE, q->argv_fn);
+        close(fd);
 
-      ck_write(fd, in_buf, q->len, q->fname);
+        unlink(q->fname); /* ignore errors */
+        fd = open(q->fname, O_WRONLY | O_CREAT | O_EXCL, DEFAULT_PERMISSION);
+
+        if (fd < 0) { PFATAL("Unable to create '%s'", q->fname); }
+
+        ck_write(fd, in_buf + ARGV_MAX_SIZE, q->len, q->fname);
+      } else {
+        unlink(q->fname); /* ignore errors */
+        fd = open(q->fname, O_WRONLY | O_CREAT | O_EXCL, DEFAULT_PERMISSION);
+
+        if (fd < 0) { PFATAL("Unable to create '%s'", q->fname); }
+
+        ck_write(fd, in_buf, q->len, q->fname);
+      }
     }
 
     close(fd);
 
-    queue_testcase_retake_mem(afl, q, in_buf, q->len, orig_len);
+    if (unlikely(afl->mut_argv_file_all)) {
+      queue_testcase_retake_mem(afl, q, in_buf, q->len + ARGV_MAX_SIZE,
+                                orig_len);
+    } else {
+      queue_testcase_retake_mem(afl, q, in_buf, q->len, orig_len);
+    }
 
     memcpy(afl->fsrv.trace_bits, afl->clean_trace, afl->fsrv.map_size);
     update_bitmap_score(afl, q);
@@ -999,9 +1081,22 @@ u8 __attribute__((hot)) common_fuzz_stuff(afl_state_t *afl, u8 *out_buf,
                                           u32 len, u8 *argv, u32 argv_len) {
   u8 fault;
 
-  write_argv_file(afl, argv, argv_len);
-  if (unlikely(len = write_to_testcase(afl, (void **)&out_buf, len, 0)) == 0) {
-    return 0;
+  if (afl->mut_argv_file_all) {
+    write_argv_file(afl, out_buf, ARGV_MAX_SIZE);
+
+    u8 *tmp = out_buf + ARGV_MAX_SIZE;
+
+    if (unlikely(write_to_testcase(afl, (void **)&tmp, len - ARGV_MAX_SIZE,
+                                   0) == 0)) {
+      return 0;
+    }
+  } else {
+    write_argv_file(afl, argv, argv_len);
+
+    if (unlikely(len = write_to_testcase(afl, (void **)&out_buf, len, 0)) ==
+        0) {
+      return 0;
+    }
   }
 
   fault = fuzz_run_target(afl, &afl->fsrv, afl->fsrv.exec_tmout);
@@ -1029,8 +1124,14 @@ u8 __attribute__((hot)) common_fuzz_stuff(afl_state_t *afl, u8 *out_buf,
 
   /* This handles FAULT_ERROR for us: */
 
-  afl->queued_discovered +=
-      save_if_interesting(afl, out_buf, len, fault, argv, argv_len);
+  if (afl->mut_argv_file_all) {
+    afl->queued_discovered +=
+        save_if_interesting(afl, out_buf + ARGV_MAX_SIZE, len - ARGV_MAX_SIZE,
+                            fault, out_buf, ARGV_MAX_SIZE);
+  } else {
+    afl->queued_discovered +=
+        save_if_interesting(afl, out_buf, len, fault, argv, argv_len);
+  }
 
   if (!(afl->stage_cur % afl->stats_update_freq) ||
       afl->stage_cur + 1 == afl->stage_max) {

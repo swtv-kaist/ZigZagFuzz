@@ -2907,6 +2907,50 @@ havoc_stage:
     }
     }
 
+    if (afl->mut_argv_file_all) {
+      if (temp_len <= ARGV_MAX_SIZE) {
+        out_buf = afl_realloc(AFL_BUF_PARAM(out), len);
+        if (unlikely(!out_buf)) { PFATAL("alloc"); }
+        temp_len = len;
+        memcpy(out_buf, in_buf, len);
+        continue;
+      }
+
+      u8  has_placeholder = false;
+      u32 idx1 = 0;
+      u32 argv_len = ARGV_MAX_SIZE;
+
+      while (idx1 < ARGV_MAX_SIZE - 3) {
+        if (out_buf[idx1] == '@' && out_buf[idx1 + 1] == '@') {
+          has_placeholder = true;
+          break;
+        }
+
+        if (out_buf[idx1] == 0 && out_buf[idx1 + 1] == 0) {
+          argv_len = idx1;
+          break;
+        }
+        idx1++;
+      }
+
+      if (argv_len < 3) {
+        out_buf = afl_realloc(AFL_BUF_PARAM(out), len);
+        if (unlikely(!out_buf)) { PFATAL("alloc"); }
+        temp_len = len;
+        memcpy(out_buf, in_buf, len);
+        continue;
+      }
+
+      if (!has_placeholder && !afl->fsrv.use_stdin) {
+        idx1 = rand_below(afl, argv_len - 3);
+        out_buf[idx1] = '@';
+        out_buf[idx1 + 1] = '@';
+      }
+
+      out_buf[argv_len - 2] = 0;
+      out_buf[argv_len - 1] = 0;
+    }
+
     if (common_fuzz_stuff(afl, out_buf, temp_len, argv_buf, argv_len)) {
       goto abandon_entry;
     }
@@ -3154,6 +3198,8 @@ static u8 mopt_common_fuzzing(afl_state_t *afl, MOpt_globals_t MOpt_globals) {
   /* Map the test case into memory. */
   orig_in = in_buf = queue_testcase_get(afl, afl->queue_cur);
   len = afl->queue_cur->len;
+
+  if (afl->mut_argv_file_all) { len += ARGV_MAX_SIZE; }
 
   out_buf = afl_realloc(AFL_BUF_PARAM(out), len);
   if (unlikely(!out_buf)) { PFATAL("alloc"); }

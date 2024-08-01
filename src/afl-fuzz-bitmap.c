@@ -549,16 +549,39 @@ u8 __attribute__((hot)) save_if_interesting(afl_state_t *afl, void *mem,
       afl->n_fuzz[afl->queue_top->n_fuzz_entry] = 1;
     }
 
+    u8 *func_map = afl->shm.func_map;
+    memset(func_map, 0, FUNC_MAP_SIZE);
+
     /* Try to calibrate inline; this also calls update_bitmap_score() when
        successful. */
-    res = calibrate_case(afl, afl->queue_top, mem, afl->queue_cycle - 1, 0);
+
+    if (afl->mut_argv_file_all) {
+      u8 *tmp = malloc(len + ARGV_MAX_SIZE);
+      if (unlikely(tmp == NULL)) {
+        FATAL("Unable to allocate memory for argv");
+      }
+      memcpy(tmp, argv, ARGV_MAX_SIZE);
+      memcpy(tmp + ARGV_MAX_SIZE, mem, len);
+      res = calibrate_case(afl, afl->queue_top, tmp, afl->queue_cycle - 1, 0);
+      free(tmp);
+    } else {
+      res = calibrate_case(afl, afl->queue_top, mem, afl->queue_cycle - 1, 0);
+    }
 
     if (unlikely(res == FSRV_RUN_ERROR)) {
       FATAL("Unable to execute target application");
     }
 
     if (likely(afl->q_testcase_max_cache_size)) {
-      queue_testcase_store_mem(afl, afl->queue_top, mem);
+      if (unlikely(afl->mut_argv_file_all)) {
+        u8 *tmp = malloc(len + ARGV_MAX_SIZE);
+        memcpy(tmp, argv, ARGV_MAX_SIZE);
+        memcpy(tmp + ARGV_MAX_SIZE, mem, len);
+        queue_testcase_store_mem(afl, afl->queue_top, tmp);
+        free(tmp);
+      } else {
+        queue_testcase_store_mem(afl, afl->queue_top, mem);
+      }
     }
 
     keeping = 1;
