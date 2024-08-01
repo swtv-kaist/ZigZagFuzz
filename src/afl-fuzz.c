@@ -2846,6 +2846,15 @@ stop_fuzzing:
     (void)unlink(afl->fsrv.out_file);
   }
 
+  if (afl->argv_dict) {
+    u32 idx;
+    for (idx = 0; idx < afl->argv_dict_cnt; idx++) {
+      free(afl->argv_dict[idx]);
+    }
+    free(afl->argv_dict);
+  }
+  free_argv_bufs(afl);
+
   if (afl->orig_cmdline) { ck_free(afl->orig_cmdline); }
   ck_free(afl->fsrv.target_path);
   ck_free(afl->fsrv.out_file);
