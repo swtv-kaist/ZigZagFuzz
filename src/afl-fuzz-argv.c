@@ -6,6 +6,7 @@
 #include "cmplog.h"
 
 static inline u32 choose_block_len_small(afl_state_t *afl, u32 limit);
+static void       write_shrink_log_after(afl_state_t *afl);
 
 void init_argv_buf(afl_state_t *afl) {
   afl->num_argvs = 0;
@@ -191,33 +192,47 @@ u32 get_argv_id(afl_state_t *afl, struct queue_entry *q) {
 }
 
 u32 get_file_id(afl_state_t *afl) {
-  u32 file_id = afl->num_unique_files++;
-  if (unlikely(afl->file_to_queue_size_size == file_id)) {
-    afl->file_to_queue_size_size *= 2;
-    afl->file_to_queue = (u32 **)realloc(
-        afl->file_to_queue, sizeof(u32 *) * afl->file_to_queue_size_size);
-    afl->file_to_queue_cnt = (u32 *)realloc(
-        afl->file_to_queue_cnt, sizeof(u32) * afl->file_to_queue_size_size);
-    afl->file_to_queue_size = (u32 *)realloc(
-        afl->file_to_queue_size, sizeof(u32) * afl->file_to_queue_size_size);
-    afl->file_num_mut = (u64 *)realloc(
-        afl->file_num_mut, afl->file_to_queue_size_size * sizeof(u64));
-    afl->file_num_finds = (u32 *)realloc(
-        afl->file_num_finds, sizeof(u32) * afl->file_to_queue_size_size);
-    afl->file_num_argv_mut = (u64 *)realloc(
-        afl->file_num_argv_mut, afl->file_to_queue_size_size * sizeof(u64));
-    afl->file_num_argv_finds = (u32 *)realloc(
-        afl->file_num_argv_finds, sizeof(u32) * afl->file_to_queue_size_size);
-  }
+  u32 file_id;
+  if (afl->mut_file_only) {
+    file_id = afl->num_unique_files++;
+    if (unlikely(afl->file_to_queue_size_size == file_id)) {
+      afl->file_to_queue_size_size *= 2;
+      afl->file_to_queue = (u32 **)realloc(
+          afl->file_to_queue, sizeof(u32 *) * afl->file_to_queue_size_size);
+      afl->file_to_queue_cnt = (u32 *)realloc(
+          afl->file_to_queue_cnt, sizeof(u32) * afl->file_to_queue_size_size);
+      afl->file_to_queue_size = (u32 *)realloc(
+          afl->file_to_queue_size, sizeof(u32) * afl->file_to_queue_size_size);
+      afl->file_num_mut = (u64 *)realloc(
+          afl->file_num_mut, afl->file_to_queue_size_size * sizeof(u64));
+      afl->file_num_finds = (u32 *)realloc(
+          afl->file_num_finds, sizeof(u32) * afl->file_to_queue_size_size);
+      afl->file_num_argv_mut = (u64 *)realloc(
+          afl->file_num_argv_mut, afl->file_to_queue_size_size * sizeof(u64));
+      afl->file_num_argv_finds = (u32 *)realloc(
+          afl->file_num_argv_finds, sizeof(u32) * afl->file_to_queue_size_size);
+    }
 
-  afl->file_to_queue[file_id] = (u32 *)malloc(sizeof(u32) * 8);
-  afl->file_to_queue[file_id][0] = afl->queued_items;
-  afl->file_to_queue_cnt[file_id] = 1;
-  afl->file_to_queue_size[file_id] = 8;
-  afl->file_num_mut[file_id] = 0;
-  afl->file_num_finds[file_id] = 0;
-  afl->file_num_argv_mut[file_id] = 0;
-  afl->file_num_argv_finds[file_id] = 0;
+    afl->file_to_queue[file_id] = (u32 *)malloc(sizeof(u32) * 8);
+    afl->file_to_queue[file_id][0] = afl->queued_items;
+    afl->file_to_queue_cnt[file_id] = 1;
+    afl->file_to_queue_size[file_id] = 8;
+    afl->file_num_mut[file_id] = 0;
+    afl->file_num_finds[file_id] = 0;
+    afl->file_num_argv_mut[file_id] = 0;
+    afl->file_num_argv_finds[file_id] = 0;
+  } else {
+    file_id = afl->queue_buf[afl->current_entry]->file_id;
+    if (unlikely(afl->file_to_queue_cnt[file_id] ==
+                 afl->file_to_queue_size[file_id])) {
+      afl->file_to_queue_size[file_id] *= 2;
+      afl->file_to_queue[file_id] =
+          (u32 *)realloc(afl->file_to_queue[file_id],
+                         sizeof(u32) * afl->file_to_queue_size[file_id]);
+    }
+    afl->file_to_queue[file_id][afl->file_to_queue_cnt[file_id]++] =
+        afl->queued_items;
+  }
 
   return file_id;
 }
@@ -1442,4 +1457,699 @@ static inline u32 choose_block_len_small(afl_state_t *afl, u32 limit) {
   if (min_value >= limit) { min_value = 1; }
 
   return min_value + rand_below(afl, MIN(max_value, limit) - min_value + 1);
+}
+
+static float get_jaccard_dist(u32 *func_calls1, u32 func_cnt1, u32 *func_calls2,
+                              u32 func_cnt2) {
+  u32 idx1, idx2;
+  u32 num_common = 0;
+  u32 num_union = 0;
+
+  idx1 = 0;
+  idx2 = 0;
+  while ((idx1 < func_cnt1) && (idx2 < func_cnt2)) {
+    if (func_calls1[idx1] == func_calls2[idx2]) {
+      idx1++;
+      idx2++;
+      num_common++;
+    } else if (func_calls1[idx1] < func_calls2[idx2]) {
+      idx1++;
+    } else {
+      idx2++;
+    }
+  }
+
+  num_union = func_cnt1 + func_cnt2 - num_common;
+
+  return 1.0 - ((float)num_common / (float)num_union);
+}
+
+static void argv_clustering(afl_state_t *afl, u32 *zero_argvs,
+                            u32 num_zero_argvs, u32 **rank_scores,
+                            u32 **rank_idxes, u32 *cluster_num_argvs) {
+  u32                 idx1, idx2, idx3, argv_idx, queue_idx;
+  struct queue_entry *q;
+
+  u32 **func_calls = (u32 **)calloc(num_zero_argvs, sizeof(u32 *));
+  u32  *func_call_cnts = (u32 *)calloc(num_zero_argvs, sizeof(u32));
+  u8   *func_map = afl->shm.func_map;
+  u8   *in_buf = 0;
+
+  for (idx1 = 0; idx1 < num_zero_argvs; idx1++) {
+    argv_idx = zero_argvs[idx1];
+
+    memset(func_map, 0, FUNC_MAP_SIZE);
+
+    queue_idx = afl->argv_to_queue[argv_idx][0];
+    q = afl->queue_buf[queue_idx];
+
+    in_buf = queue_testcase_get(afl, q);
+    write_argv_file(afl, q->argv, q->argv_len);
+    (void)write_to_testcase(afl, (void **)&in_buf, q->len, 1);
+    (void)fuzz_run_target(afl, &afl->fsrv, afl->fsrv.exec_tmout);
+
+    u32  called_funcs_size = 512;
+    u32 *called_funcs = (u32 *)malloc(sizeof(u32) * 512);
+    u32  called_funcs_cnt = 0;
+
+    for (idx2 = 0; idx2 < FUNC_MAP_SIZE; idx2++) {
+      if (func_map[idx2] == 0) { continue; }
+
+      called_funcs[called_funcs_cnt++] = idx2;
+
+      if (unlikely(called_funcs_cnt == called_funcs_size)) {
+        called_funcs_size *= 2;
+        called_funcs =
+            (u32 *)realloc(called_funcs, sizeof(u32) * called_funcs_size);
+      }
+    }
+
+    func_calls[idx1] = called_funcs;
+    func_call_cnts[idx1] = called_funcs_cnt;
+
+    if (unlikely(afl->stop_soon)) { break; }
+  }
+
+  u32 **clusters = (u32 **)malloc(sizeof(u32 *) * NUM_ARGV_CLUSTERS);
+  u8   *selected_argvs_bits = (u8 *)calloc(num_zero_argvs, sizeof(u8));
+
+  // 1. pick random centroids
+  for (idx1 = 0; idx1 < NUM_ARGV_CLUSTERS; idx1++) {
+    u32 rand_argv_idx = rand_below(afl, num_zero_argvs);
+    while (selected_argvs_bits[rand_argv_idx]) {
+      rand_argv_idx = rand_below(afl, num_zero_argvs);
+    }
+    selected_argvs_bits[rand_argv_idx] = 1;
+    clusters[idx1] = (u32 *)malloc(sizeof(u32) * num_zero_argvs);
+    clusters[idx1][0] = rand_argv_idx;
+  }
+
+  u8  centroid_changed = 1;
+  u32 num_iteration = 0;
+  while (centroid_changed && (num_iteration++ < 30) && (afl->stop_soon == 0)) {
+    // 2. assign argvs to clusters
+    centroid_changed = 0;
+
+    memset(selected_argvs_bits, 0, sizeof(u8) * num_zero_argvs);
+    for (idx1 = 0; idx1 < NUM_ARGV_CLUSTERS; idx1++) {
+      selected_argvs_bits[clusters[idx1][0]] = 1;
+      cluster_num_argvs[idx1] = 1;
+    }
+
+    for (idx1 = 0; idx1 < num_zero_argvs; idx1++) {
+      if (selected_argvs_bits[idx1]) { continue; }
+
+      float min_dist = 1;
+      u32   min_dist_cluster = 0;
+
+      u32 *cur_argv_func_calls = func_calls[idx1];
+      u32  cur_argv_func_call_cnt = func_call_cnts[idx1];
+
+      for (idx2 = 0; idx2 < NUM_ARGV_CLUSTERS; idx2++) {
+        u32 *centroid_func_calls = func_calls[clusters[idx2][0]];
+        u32  centroid_func_call_cnt = func_call_cnts[clusters[idx2][0]];
+
+        float dist =
+            get_jaccard_dist(cur_argv_func_calls, cur_argv_func_call_cnt,
+                             centroid_func_calls, centroid_func_call_cnt);
+
+        if (dist < min_dist) {
+          min_dist = dist;
+          min_dist_cluster = idx2;
+        }
+      }
+
+      clusters[min_dist_cluster][cluster_num_argvs[min_dist_cluster]++] = idx1;
+    }
+
+    // 3. recompute centroids
+    for (idx1 = 0; idx1 < NUM_ARGV_CLUSTERS; idx1++) {
+      u32 *centroid_func_calls = func_calls[clusters[idx1][0]];
+      u32  centroid_func_call_cnt = func_call_cnts[clusters[idx1][0]];
+
+      float min_dist_sum = 0;
+
+      for (idx2 = 1; idx2 < cluster_num_argvs[idx1]; idx2++) {
+        u32 *cur_argv_func_calls = func_calls[clusters[idx1][idx2]];
+        u32  cur_argv_func_call_cnt = func_call_cnts[clusters[idx1][idx2]];
+
+        min_dist_sum +=
+            get_jaccard_dist(cur_argv_func_calls, cur_argv_func_call_cnt,
+                             centroid_func_calls, centroid_func_call_cnt);
+      }
+
+      u32 min_dist_centroid = 0;
+
+      for (idx2 = 1; idx2 < cluster_num_argvs[idx1]; idx2++) {
+        u32 *cur_argv_func_calls = func_calls[clusters[idx1][idx2]];
+        u32  cur_argv_func_call_cnt = func_call_cnts[clusters[idx1][idx2]];
+
+        float cur_dist_sum = 0;
+
+        for (idx3 = 0; idx3 < cluster_num_argvs[idx1]; idx3++) {
+          if (idx2 == idx3) { continue; }
+
+          u32 *other_argv_func_calls = func_calls[clusters[idx1][idx3]];
+          u32  other_argv_func_call_cnt = func_call_cnts[clusters[idx1][idx3]];
+
+          cur_dist_sum +=
+              get_jaccard_dist(cur_argv_func_calls, cur_argv_func_call_cnt,
+                               other_argv_func_calls, other_argv_func_call_cnt);
+        }
+
+        if (cur_dist_sum < min_dist_sum) {
+          min_dist_sum = cur_dist_sum;
+          min_dist_centroid = idx2;
+        }
+      }
+
+      if (min_dist_centroid != 0) {
+        centroid_changed = 1;
+        clusters[idx1][0] = clusters[idx1][min_dist_centroid];
+      }
+    }
+  }
+
+  for (idx1 = 0; idx1 < NUM_ARGV_CLUSTERS; idx1++) {
+    fprintf(afl->shrink_log_f, "shrink cluster %u:", idx1);
+    u32 *cluster = clusters[idx1];
+    u32  num_argv_in_cluster = cluster_num_argvs[idx1];
+
+    u32 *cur_rank_score = rank_scores[idx1];
+    u32 *cur_rank_idxes = rank_idxes[idx1];
+
+    memset(cur_rank_score, 0, sizeof(u32) * num_argv_in_cluster);
+
+    for (idx2 = 0; idx2 < num_argv_in_cluster; idx2++) {
+      idx3 = cluster[idx2];
+      argv_idx = zero_argvs[idx3];
+      fprintf(afl->shrink_log_f, "%u,", argv_idx);
+
+      u32   num_q_in_argv = afl->argv_to_queue_cnt[argv_idx];
+      float avg_score = 0;
+
+      for (idx3 = 0; idx3 < num_q_in_argv; idx3++) {
+        queue_idx = afl->argv_to_queue[argv_idx][idx3];
+        avg_score += calculate_score(afl, afl->queue_buf[queue_idx]);
+      }
+
+      avg_score /= (float)num_q_in_argv;
+
+      for (idx3 = 0; idx3 < idx2; idx3++) {
+        if (cur_rank_score[idx3] <= avg_score) {
+          memmove(&cur_rank_score[idx3 + 1], &cur_rank_score[idx3],
+                  sizeof(u32) * (num_argv_in_cluster - idx3 - 1));
+          memmove(&cur_rank_idxes[idx3 + 1], &cur_rank_idxes[idx3],
+                  sizeof(u32) * (num_argv_in_cluster - idx3 - 1));
+          cur_rank_score[idx3] = avg_score;
+          cur_rank_idxes[idx3] = argv_idx;
+          break;
+        }
+      }
+
+      if (idx3 == idx2) {
+        cur_rank_score[idx2] = avg_score;
+        cur_rank_idxes[idx2] = argv_idx;
+      }
+    }
+
+    fprintf(afl->shrink_log_f, "\n");
+  }
+
+  for (idx1 = 0; idx1 < num_zero_argvs; idx1++) {
+    free(func_calls[idx1]);
+  }
+  free(func_calls);
+  free(func_call_cnts);
+
+  for (idx1 = 0; idx1 < NUM_ARGV_CLUSTERS; idx1++) {
+    free(clusters[idx1]);
+  }
+
+  free(selected_argvs_bits);
+}
+
+static void file_clustering(afl_state_t *afl, u32 *zero_files,
+                            u32 num_zero_files, u32 **rank_scores,
+                            u32 **rank_idxes, u32 *cluster_num_files) {
+  u32                 idx1, idx2, idx3, file_idx, queue_idx, active_idx;
+  struct queue_entry *q;
+
+  u32 **func_calls = (u32 **)calloc(num_zero_files, sizeof(u32 *));
+  u32  *func_call_cnts = (u32 *)calloc(num_zero_files, sizeof(u32));
+  u8   *func_map = afl->shm.func_map;
+  u8   *in_buf;
+
+  for (idx1 = 0; idx1 < num_zero_files; idx1++) {
+    file_idx = zero_files[idx1];
+
+    memset(func_map, 0, FUNC_MAP_SIZE);
+
+    queue_idx = afl->file_to_queue[file_idx][0];
+    q = afl->queue_buf[queue_idx];
+
+    in_buf = queue_testcase_get(afl, q);
+    write_argv_file(afl, q->argv, q->argv_len);
+    (void)write_to_testcase(afl, (void **)&in_buf, q->len, 1);
+    (void)fuzz_run_target(afl, &afl->fsrv, afl->fsrv.exec_tmout);
+
+    u32  called_funcs_size = 512;
+    u32 *called_funcs = (u32 *)malloc(sizeof(u32) * 512);
+    u32  called_funcs_cnt = 0;
+
+    for (idx2 = 0; idx2 < FUNC_MAP_SIZE; idx2++) {
+      if (func_map[idx2] == 0) { continue; }
+
+      called_funcs[called_funcs_cnt++] = idx2;
+
+      if (unlikely(called_funcs_cnt == called_funcs_size)) {
+        called_funcs_size *= 2;
+        called_funcs =
+            (u32 *)realloc(called_funcs, sizeof(u32) * called_funcs_size);
+      }
+    }
+
+    func_calls[idx1] = called_funcs;
+    func_call_cnts[idx1] = called_funcs_cnt;
+
+    if (unlikely(afl->stop_soon)) { break; }
+  }
+
+  u32 **clusters = (u32 **)malloc(sizeof(u32 *) * NUM_FILE_CLUSTERS);
+  u8   *selected_file_bits = (u8 *)calloc(num_zero_files, sizeof(u8));
+
+  // 1. pick random centroids
+  for (idx1 = 0; idx1 < NUM_FILE_CLUSTERS; idx1++) {
+    u32 rand_file_idx = rand_below(afl, num_zero_files);
+    while (selected_file_bits[rand_file_idx]) {
+      rand_file_idx = rand_below(afl, num_zero_files);
+    }
+    selected_file_bits[rand_file_idx] = 1;
+    clusters[idx1] = (u32 *)malloc(sizeof(u32) * num_zero_files);
+    clusters[idx1][0] = rand_file_idx;
+  }
+
+  u8  centroid_changed = 1;
+  u32 num_iteration = 0;
+  while (centroid_changed && (num_iteration++ < 30) && (afl->stop_soon == 0)) {
+    // 2. assign files to clusters
+    centroid_changed = 0;
+
+    memset(selected_file_bits, 0, sizeof(u8) * num_zero_files);
+    for (idx1 = 0; idx1 < NUM_FILE_CLUSTERS; idx1++) {
+      selected_file_bits[clusters[idx1][0]] = 1;
+      cluster_num_files[idx1] = 1;
+    }
+
+    for (idx1 = 0; idx1 < num_zero_files; idx1++) {
+      if (selected_file_bits[idx1]) { continue; }
+
+      float min_dist = 1;
+      u32   min_dist_cluster = 0;
+
+      u32 *cur_file_func_calls = func_calls[idx1];
+      u32  cur_file_func_call_cnt = func_call_cnts[idx1];
+
+      for (idx2 = 0; idx2 < NUM_FILE_CLUSTERS; idx2++) {
+        u32 *centroid_func_calls = func_calls[clusters[idx2][0]];
+        u32  centroid_func_call_cnt = func_call_cnts[clusters[idx2][0]];
+
+        float dist =
+            get_jaccard_dist(cur_file_func_calls, cur_file_func_call_cnt,
+                             centroid_func_calls, centroid_func_call_cnt);
+
+        if (dist < min_dist) {
+          min_dist = dist;
+          min_dist_cluster = idx2;
+        }
+      }
+
+      clusters[min_dist_cluster][cluster_num_files[min_dist_cluster]++] = idx1;
+    }
+
+    // 3. recompute centroids
+    for (idx1 = 0; idx1 < NUM_FILE_CLUSTERS; idx1++) {
+      u32 *centroid_func_calls = func_calls[clusters[idx1][0]];
+      u32  centroid_func_call_cnt = func_call_cnts[clusters[idx1][0]];
+
+      float min_dist_sum = 0;
+
+      for (idx2 = 1; idx2 < cluster_num_files[idx1]; idx2++) {
+        u32 *cur_file_func_calls = func_calls[clusters[idx1][idx2]];
+        u32  cur_file_func_call_cnt = func_call_cnts[clusters[idx1][idx2]];
+
+        min_dist_sum +=
+            get_jaccard_dist(cur_file_func_calls, cur_file_func_call_cnt,
+                             centroid_func_calls, centroid_func_call_cnt);
+      }
+
+      u32 min_dist_centroid = 0;
+
+      for (idx2 = 1; idx2 < cluster_num_files[idx1]; idx2++) {
+        u32 *cur_file_func_calls = func_calls[clusters[idx1][idx2]];
+        u32  cur_file_func_call_cnt = func_call_cnts[clusters[idx1][idx2]];
+
+        float cur_dist_sum = 0;
+
+        for (idx3 = 0; idx3 < cluster_num_files[idx1]; idx3++) {
+          if (idx2 == idx3) { continue; }
+
+          u32 *other_file_func_calls = func_calls[clusters[idx1][idx3]];
+          u32  other_file_func_call_cnt = func_call_cnts[clusters[idx1][idx3]];
+
+          cur_dist_sum +=
+              get_jaccard_dist(cur_file_func_calls, cur_file_func_call_cnt,
+                               other_file_func_calls, other_file_func_call_cnt);
+        }
+
+        if (cur_dist_sum < min_dist_sum) {
+          min_dist_sum = cur_dist_sum;
+          min_dist_centroid = idx2;
+        }
+      }
+
+      if (min_dist_centroid != 0) {
+        centroid_changed = 1;
+        clusters[idx1][0] = clusters[idx1][min_dist_centroid];
+      }
+
+      if (unlikely(afl->stop_soon)) { break; }
+    }
+  }
+
+  for (idx1 = 0; idx1 < NUM_FILE_CLUSTERS; idx1++) {
+    fprintf(afl->shrink_log_f, "shrink file cluster %u:", idx1);
+    u32 *cluster = clusters[idx1];
+    u32  num_file_in_cluster = cluster_num_files[idx1];
+
+    u32 *cur_rank_vals = rank_scores[idx1];
+    u32 *cur_rank_idxes = rank_idxes[idx1];
+
+    memset(cur_rank_vals, 0, sizeof(u32) * num_file_in_cluster);
+
+    for (idx2 = 0; idx2 < num_file_in_cluster; idx2++) {
+      active_idx = cluster[idx2];
+      file_idx = zero_files[active_idx];
+      fprintf(afl->shrink_log_f, "%u,", file_idx);
+
+      float avg_score = 0;
+      u32   num_q_in_file = afl->file_to_queue_cnt[file_idx];
+
+      for (idx3 = 0; idx3 < num_q_in_file; idx3++) {
+        queue_idx = afl->file_to_queue[file_idx][idx3];
+        avg_score += calculate_score(afl, afl->queue_buf[queue_idx]);
+      }
+
+      avg_score /= (float)num_q_in_file;
+
+      for (idx3 = 0; idx3 < idx2; idx3++) {
+        if (cur_rank_vals[idx3] <= avg_score) {
+          memmove(&cur_rank_vals[idx3 + 1], &cur_rank_vals[idx3],
+                  sizeof(float) * (num_file_in_cluster - idx3 - 1));
+          memmove(&cur_rank_idxes[idx3 + 1], &cur_rank_idxes[idx3],
+                  sizeof(u32) * (num_file_in_cluster - idx3 - 1));
+          cur_rank_vals[idx3] = avg_score;
+          cur_rank_idxes[idx3] = file_idx;
+          break;
+        }
+      }
+
+      if (idx3 == idx2) {
+        cur_rank_vals[idx2] = avg_score;
+        cur_rank_idxes[idx2] = file_idx;
+      }
+    }
+
+    fprintf(afl->shrink_log_f, "\n");
+  }
+
+  for (idx1 = 0; idx1 < num_zero_files; idx1++) {
+    free(func_calls[idx1]);
+  }
+  free(func_calls);
+  free(func_call_cnts);
+
+  free(selected_file_bits);
+
+  for (idx1 = 0; idx1 < NUM_FILE_CLUSTERS; idx1++) {
+    free(clusters[idx1]);
+  }
+  free(clusters);
+
+  return;
+}
+
+void shrink_corpus(afl_state_t *afl) {
+  // shrink
+  u32                 idx1, idx2, queue_idx;
+  struct queue_entry *q;
+
+  u32  num_queue;
+  u32 *active_zero_argvs = malloc(sizeof(u32) * afl->num_argvs);
+  u32  num_active_zero_argvs = 0;
+
+  u32 *good_argvs = malloc(sizeof(u32) * afl->num_argvs);
+  u32  num_good_argvs = 0;
+  u32  num_active_tcs = 0;
+
+  u32 *active_zero_files = malloc(sizeof(u32) * afl->num_unique_files);
+  u32  num_active_zero_files = 0;
+
+  u32 *good_files = malloc(sizeof(u32) * afl->num_unique_files);
+  u32  num_good_files = 0;
+
+  u32 num_active = 0;
+  u32 num_active_files = 0;
+
+  for (idx1 = 0; idx1 < afl->num_argvs; idx1++) {
+    num_queue = afl->argv_to_queue_cnt[idx1];
+
+    num_active = 0;
+    for (queue_idx = 0; queue_idx < num_queue; queue_idx++) {
+      q = afl->queue_buf[afl->argv_to_queue[idx1][queue_idx]];
+      num_active += !q->disabled;
+    }
+
+    num_active_tcs += num_active;
+
+    if ((num_queue == 1) && (num_active == 1)) {
+      active_zero_argvs[num_active_zero_argvs++] = idx1;
+    } else if (num_active > 1) {
+      good_argvs[num_good_argvs++] = idx1;
+    }
+  }
+
+  for (idx1 = 0; idx1 < afl->num_unique_files; idx1++) {
+    num_queue = afl->file_to_queue_cnt[idx1];
+
+    num_active = 0;
+    for (queue_idx = 0; queue_idx < num_queue; queue_idx++) {
+      q = afl->queue_buf[afl->file_to_queue[idx1][queue_idx]];
+      num_active += !q->disabled;
+    }
+
+    if (num_active) { num_active_files++; }
+
+    if ((num_queue == 1) && (num_active == 1)) {
+      active_zero_files[num_active_zero_files++] = idx1;
+    } else if (num_active > 1) {
+      good_files[num_good_files++] = idx1;
+    }
+  }
+
+  fprintf(afl->shrink_log_f, "# of file mutated last period: %u, ",
+          afl->num_selected_file_for_mut);
+
+  u32 num_min_selected_tcs = afl->num_selected_file_for_mut;
+
+  afl->num_selected_file_for_mut = 0;
+
+  fprintf(afl->shrink_log_f, "# of tcs : %u, # of active tcs: %u\n",
+          afl->queued_items, num_active_tcs);
+  fprintf(afl->shrink_log_f, "# of argvs : %u, # Active Argvs : %u\n",
+          afl->num_argvs, num_active_zero_argvs + num_good_argvs);
+  fprintf(afl->shrink_log_f, "# of unique files : %u, # active files: %u\n",
+          afl->num_unique_files, num_active_files);
+
+  if ((num_active_tcs < num_min_selected_tcs) ||
+      (num_active_zero_argvs < NUM_ARGV_CLUSTERS) ||
+      (num_active_zero_files < NUM_FILE_CLUSTERS)) {
+    free(active_zero_argvs);
+    free(good_argvs);
+    free(active_zero_files);
+    free(good_files);
+
+    fprintf(afl->shrink_log_f,
+            "Not enough tcs/argvs/files to do clustering, skip\n");
+    write_shrink_log_after(afl);
+    return;
+  }
+
+  u64 time_begin = get_cur_time();
+
+  u32 **argv_rank_scores = (u32 **)malloc(sizeof(u32 *) * NUM_ARGV_CLUSTERS);
+  u32 **argv_rank_idxes = (u32 **)malloc(sizeof(u32 *) * NUM_ARGV_CLUSTERS);
+  u32  *cluster_num_argvs = (u32 *)calloc(NUM_ARGV_CLUSTERS, sizeof(u32));
+
+  for (idx1 = 0; idx1 < NUM_ARGV_CLUSTERS; idx1++) {
+    argv_rank_scores[idx1] = (u32 *)malloc(sizeof(u32) * num_active_zero_argvs);
+    argv_rank_idxes[idx1] = (u32 *)malloc(sizeof(u32) * num_active_zero_argvs);
+  }
+
+  argv_clustering(afl, active_zero_argvs, num_active_zero_argvs,
+                  argv_rank_scores, argv_rank_idxes, cluster_num_argvs);
+
+  u32 **file_rank_scores = (u32 **)malloc(sizeof(u32 *) * NUM_FILE_CLUSTERS);
+  u32 **file_rank_idxes = (u32 **)malloc(sizeof(u32 *) * NUM_FILE_CLUSTERS);
+  u32  *cluster_num_files = (u32 *)calloc(NUM_FILE_CLUSTERS, sizeof(u32));
+
+  for (idx1 = 0; idx1 < NUM_FILE_CLUSTERS; idx1++) {
+    file_rank_scores[idx1] = (u32 *)malloc(sizeof(u32) * num_active_zero_files);
+    file_rank_idxes[idx1] = (u32 *)malloc(sizeof(u32) * num_active_zero_files);
+  }
+
+  file_clustering(afl, active_zero_files, num_active_zero_files,
+                  file_rank_scores, file_rank_idxes, cluster_num_files);
+
+  u8 *selected_argvs_bits = (u8 *)calloc(afl->num_argvs, sizeof(u8));
+  u8 *selected_files_bits = (u8 *)calloc(afl->num_unique_files, sizeof(u8));
+
+  for (idx1 = 0; idx1 < num_good_argvs; idx1++) {
+    selected_argvs_bits[good_argvs[idx1]] = 1;
+  }
+
+  for (idx1 = 0; idx1 < NUM_ARGV_CLUSTERS; idx1++) {
+    for (idx2 = 0; idx2 < NUM_SEL_IN_ARGV_CLUSTER; idx2++) {
+      if (idx2 >= cluster_num_argvs[idx1]) { break; }
+
+      selected_argvs_bits[argv_rank_idxes[idx1][idx2]] = 1;
+    }
+  }
+
+  for (idx1 = 0; idx1 < num_good_files; idx1++) {
+    selected_files_bits[good_files[idx1]] = 1;
+  }
+
+  for (idx1 = 0; idx1 < NUM_FILE_CLUSTERS; idx1++) {
+    for (idx2 = 0; idx2 < NUM_SEL_IN_FILE_CLUSTER; idx2++) {
+      if (idx2 >= cluster_num_files[idx1]) { break; }
+
+      selected_files_bits[file_rank_idxes[idx1][idx2]] = 1;
+    }
+  }
+
+  u32 *selected_queue_idxes = (u32 *)malloc(sizeof(u32) * num_active_tcs);
+  u8  *selected_queue_bits = (u8 *)calloc(afl->queued_items, sizeof(u8));
+  u32  num_selected_queue = 0;
+
+  for (idx1 = 0; idx1 < afl->queued_items; idx1++) {
+    q = afl->queue_buf[idx1];
+
+    if (q->disabled) { continue; }
+
+    if (!selected_argvs_bits[q->argv_id]) { continue; }
+    if (!selected_files_bits[q->file_id]) { continue; }
+
+    selected_queue_idxes[num_selected_queue++] = idx1;
+    selected_queue_bits[idx1] = 1;
+  }
+
+  if (num_selected_queue > 0) {
+    for (idx1 = 0; idx1 < afl->queued_items; idx1++) {
+      q = afl->queue_buf[idx1];
+
+      if (q->disabled) { continue; }
+
+      if (selected_queue_bits[idx1]) { continue; }
+
+      q->disabled = 1;
+      q->weight = 0.0;
+      q->perf_score = 0.0;
+      q->favored = 0;
+
+      q->tc_ref = 0;
+      ck_free(q->trace_mini);
+      q->trace_mini = NULL;
+    }
+
+    for (idx1 = 0; idx1 < afl->fsrv.map_size; idx1++) {
+      if (!afl->top_rated[idx1]) { continue; }
+
+      q = afl->top_rated[idx1];
+
+      if (q->disabled) { afl->top_rated[idx1] = 0; }
+    }
+  }
+
+  for (idx1 = 0; idx1 < NUM_ARGV_CLUSTERS; idx1++) {
+    free(argv_rank_scores[idx1]);
+    free(argv_rank_idxes[idx1]);
+  }
+
+  free(argv_rank_scores);
+  free(argv_rank_idxes);
+  free(cluster_num_argvs);
+
+  for (idx1 = 0; idx1 < NUM_FILE_CLUSTERS; idx1++) {
+    free(file_rank_scores[idx1]);
+    free(file_rank_idxes[idx1]);
+  }
+
+  free(file_rank_scores);
+  free(file_rank_idxes);
+  free(cluster_num_files);
+
+  free(selected_argvs_bits);
+  free(selected_files_bits);
+
+  free(selected_queue_idxes);
+  free(selected_queue_bits);
+
+  free(active_zero_argvs);
+  free(good_argvs);
+
+  free(active_zero_files);
+  free(good_files);
+
+  u64 time_passed = get_cur_time() - time_begin;
+  fprintf(afl->shrink_log_f, "SHRINK took %llums\n", time_passed);
+
+  write_shrink_log_after(afl);
+  afl->score_changed = 1;
+}
+
+static void write_shrink_log_after(afl_state_t *afl) {
+  u32                 idx1, num_queue, num_active, queue_idx;
+  struct queue_entry *q;
+  u32                 num_active_total = 0;
+  u32                 num_active_argvs = 0;
+
+  for (idx1 = 0; idx1 < afl->num_argvs; idx1++) {
+    num_queue = afl->argv_to_queue_cnt[idx1];
+    num_active = 0;
+    for (queue_idx = 0; queue_idx < num_queue; queue_idx++) {
+      q = afl->queue_buf[afl->argv_to_queue[idx1][queue_idx]];
+      num_active += !q->disabled;
+    }
+    num_active_argvs += !!num_active;
+    num_active_total += num_active;
+    fprintf(afl->shrink_log_f, "SHRINK res3: Argv #%u : %u/%u active\n", idx1,
+            num_active, num_queue);
+  }
+
+  for (idx1 = 0; idx1 < afl->num_unique_files; idx1++) {
+    num_queue = afl->file_to_queue_cnt[idx1];
+    num_active = 0;
+    for (queue_idx = 0; queue_idx < num_queue; queue_idx++) {
+      q = afl->queue_buf[afl->file_to_queue[idx1][queue_idx]];
+      num_active += !q->disabled;
+    }
+    fprintf(afl->shrink_log_f, "SHRINK res4: File #%u : %u/%u active\n", idx1,
+            num_active, num_queue);
+  }
+
+  fprintf(afl->shrink_log_f, "SHIRNK sum : %u/%u active, # active argv : %u\n",
+          num_active_total, afl->queued_items, num_active_argvs);
+  fprintf(afl->shrink_log_f, "finish2\n");
+  fflush(afl->shrink_log_f);
 }

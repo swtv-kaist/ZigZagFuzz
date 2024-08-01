@@ -269,10 +269,14 @@ u8 fuzz_one_original(afl_state_t *afl) {
   u64 havoc_queued = 0, orig_hit_cnt, new_hit_cnt = 0, prev_cksum, _prev_cksum;
   u32 splice_cycle = 0, perf_score = 100, orig_perf;
 
+  u32 total_run = 0;
+  u64 begin_hit_cnt = 0;
+
   u8 ret_val = 1, doing_det = 0;
 
   u8  a_collect[MAX_AUTO_EXTRA];
   u32 a_len = 0;
+  u32 argv_id;
 
 #ifdef IGNORE_FINDS
 
@@ -353,6 +357,8 @@ u8 fuzz_one_original(afl_state_t *afl) {
   afl->subseq_tmouts = 0;
 
   afl->cur_depth = afl->queue_cur->depth;
+
+  begin_hit_cnt = afl->queued_items + afl->saved_crashes;
 
   /*******************************************
    * CALIBRATION (only if failed earlier on) *
@@ -460,6 +466,13 @@ u8 fuzz_one_original(afl_state_t *afl) {
       goto abandon_entry;
     }
   }
+
+  argv_id = afl->queue_cur->argv_id;
+  fprintf(afl->shrink_log_f,
+          "FILEMUT: Selected %u, ARGV: %u, # of file for ARGV %u : %u, score : "
+          "%u\n",
+          afl->current_entry, argv_id, argv_id, afl->argv_to_queue_cnt[argv_id],
+          perf_score);
 
   u8 *skip_eff_map = afl->queue_cur->skipdet_e->skip_eff_map;
 
@@ -2920,21 +2933,30 @@ havoc_stage:
   }
 
   new_hit_cnt = afl->queued_items + afl->saved_crashes;
+  u64 new_found_cnt = new_hit_cnt - orig_hit_cnt;
 
   if (!splice_cycle) {
-    afl->stage_finds[STAGE_HAVOC] += new_hit_cnt - orig_hit_cnt;
+    afl->stage_finds[STAGE_HAVOC] += new_found_cnt;
     afl->stage_cycles[STAGE_HAVOC] += afl->stage_max;
 #ifdef INTROSPECTION
     afl->queue_cur->stats_mutated += afl->stage_max;
 #endif
 
   } else {
-    afl->stage_finds[STAGE_SPLICE] += new_hit_cnt - orig_hit_cnt;
+    afl->stage_finds[STAGE_SPLICE] += new_found_cnt;
     afl->stage_cycles[STAGE_SPLICE] += afl->stage_max;
 #ifdef INTROSPECTION
     afl->queue_cur->stats_mutated += afl->stage_max;
 #endif
   }
+
+  u32 file_id = afl->queue_cur->file_id;
+  afl->argv_num_file_finds[argv_id] += new_found_cnt;
+  afl->argv_num_file_mut[argv_id] += afl->stage_max;
+  afl->file_num_finds[file_id] += new_found_cnt;
+  afl->file_num_mut[file_id] += afl->stage_max;
+
+  total_run += afl->stage_max;
 
 #ifndef IGNORE_FINDS
 
@@ -3033,6 +3055,16 @@ retry_splicing:
 abandon_entry:
 
   afl->splicing_with = -1;
+  new_hit_cnt = afl->queued_items + afl->saved_crashes;
+
+  if (total_run > 0) {
+    fprintf(
+        afl->shrink_log_f, "%llu/%u (%0.2f)%% found\n",
+        new_hit_cnt - begin_hit_cnt, total_run,
+        ((float)(new_hit_cnt - begin_hit_cnt)) / ((float)total_run) * 100.0);
+
+    afl->num_selected_file_for_mut++;
+  }
 
   /* Update afl->pending_not_fuzzed count if we made it through the calibration
      cycle and have not seen this entry before. */

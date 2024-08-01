@@ -881,6 +881,8 @@ typedef struct afl_state {
   u32   bitsmap_size;
 #endif
 
+  u32 num_selected_file_for_mut;
+
 } afl_state_t;
 
 struct custom_mutator {
@@ -1456,9 +1458,9 @@ u32  get_file_id(afl_state_t *);
 void write_shrink_log(afl_state_t *afl);
 void update_all_bitmap_score(afl_state_t *afl);
 
-u8 fuzz_one_argv(afl_state_t *);
-u8 fuzz_one_comb_argv(afl_state_t *afl);
-// void shrink_corpus(afl_state_t *afl);
+u8   fuzz_one_argv(afl_state_t *);
+u8   fuzz_one_comb_argv(afl_state_t *afl);
+void shrink_corpus(afl_state_t *afl);
 
 void free_argv_bufs(afl_state_t *afl);
 

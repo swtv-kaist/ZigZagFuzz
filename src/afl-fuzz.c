@@ -2681,7 +2681,7 @@ int main(int argc, char **argv_orig, char **envp) {
         afl->reinit_table = 1;
         write_shrink_log(afl);
         if (afl->interleaving == 2) {
-          // shrink_corpus(afl);
+          shrink_corpus(afl);
           update_all_bitmap_score(afl);
         }
       } else if (unlikely(!afl->mut_file_only &&
