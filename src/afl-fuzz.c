@@ -557,10 +557,10 @@ int main(int argc, char **argv_orig, char **envp) {
   afl->shmem_testcase_mode = 1;  // we always try to perform shmem fuzzing
 
   // still available: HjJkKqruvwz
-  while (
-      (opt = getopt(argc, argv,
-                    "+a:Ab:B:c:CdDe:E:f:F:g:G:hi:I:K:l:L:m:M:nNo:Op:P:QRs:S:t:"
-                    "T:UV:WXx:YzZ")) > 0) {
+  while ((opt = getopt(
+              argc, argv,
+              "+a:Ab:B:c:CdDe:E:f:F:g:G:hi:I:K:l:L:m:M:nNo:Op:P:Qq:Rs:S:t:"
+              "T:UV:WXx:YzZ")) > 0) {
     switch (opt) {
       case 'a':
         afl->keyword_fn = optarg;
@@ -1043,6 +1043,13 @@ int main(int argc, char **argv_orig, char **envp) {
 
         if (!mem_limit_given) { afl->fsrv.mem_limit = MEM_LIMIT_QEMU; }
 
+        break;
+
+      case 'q':
+        afl->argv_mut_mode = atoi(optarg);
+        // 0 - use both dict/rand mut on argv (default)
+        // 1 - use dict argv mut only
+        // 2 - use rand argv mut only
         break;
 
       case 'N': /* Unicorn mode */
@@ -2627,12 +2634,18 @@ int main(int argc, char **argv_orig, char **envp) {
         skipped_fuzz = fuzz_one(afl);
       } else {
         // argv mutation only
-        if (rand_below(afl, 100) < ARGV_MUT_STRATEGY_PROB) {
-          // byte-level mutation
+        if (afl->argv_mut_mode == 1) {
+          skipped_fuzz = fuzz_one_comb_argv(afl);
+        } else if (afl->argv_mut_mode == 2) {
           skipped_fuzz = fuzz_one_argv(afl);
         } else {
-          // structural mutation
-          skipped_fuzz = fuzz_one_comb_argv(afl);
+          if (rand_below(afl, 100) < ARGV_MUT_STRATEGY_PROB) {
+            // byte-level mutation
+            skipped_fuzz = fuzz_one_argv(afl);
+          } else {
+            // structural mutation
+            skipped_fuzz = fuzz_one_comb_argv(afl);
+          }
         }
       }
   #ifdef INTROSPECTION

@@ -884,6 +884,7 @@ typedef struct afl_state {
   u32 num_selected_file_for_mut;
   u8  mut_argv_file_all;
   u8  select_argv;
+  u8  argv_mut_mode;
 
   u32 **func_exec_map;
 
