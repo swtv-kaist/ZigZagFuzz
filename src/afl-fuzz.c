@@ -1931,6 +1931,9 @@ int main(int argc, char **argv_orig, char **envp) {
     }
   }
 
+  init_argv_buf(afl);
+
+  afl->mut_file_only = 1;
   read_testcases(afl, NULL, argv + optind + 1);
 
   pivot_inputs(afl);
