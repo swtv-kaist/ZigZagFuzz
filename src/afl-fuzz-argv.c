@@ -2287,7 +2287,7 @@ void select_argv(afl_state_t *afl) {
   }
 
   u8 file_fn[PATH_MAX];
-  snprintf(file_fn, PATH_MAX, "%s/power/argv_rels", afl->out_dir);
+  snprintf(file_fn, PATH_MAX, "%s/argv_rels", afl->out_dir);
   FILE *fp = fopen(file_fn, "w");
   if (fp == NULL) { PFATAL("Unable to create '%s'", file_fn); }
 
@@ -2348,7 +2348,7 @@ void select_argv(afl_state_t *afl) {
   }
   free(argv_rel);
 
-  snprintf(file_fn, PATH_MAX, "%s/power/selected_argvs", afl->out_dir);
+  snprintf(file_fn, PATH_MAX, "%s/selected_argvs", afl->out_dir);
   fp = fopen(file_fn, "w");
   if (fp == NULL) { PFATAL("Unable to create '%s'", file_fn); }
 
