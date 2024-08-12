@@ -569,7 +569,7 @@ int main(int argc, char **argv_orig, char **envp) {
       case 'K':
         afl->interleaving = atoi(optarg);
         // 1 - fixed time interleaving
-        // 2 - 1 + func cov based shrink file, too
+        // 2 - 1 + func cov based shrink file
         break;
 
         // case 'a':
