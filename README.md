@@ -4,6 +4,10 @@ ZigZagFuzz is implemented on top of AFL++, and you can use ZigZagFuzz as similar
 The below documentation focuses on the difference from AFL++.
 Please refer [AFL++_readme](README_AFL++.md) to get a basic understanding of the base fuzzer, AFL++.
 
+We recently updated the underlying AFL++ version to the recent version (4.22a).
+If you find any problem regarding the code, please open a github issue.
+You can find the archived version in another branch (tosem_2024).
+
 ## Prerequisite
 ZigZagFuzz has been tested on Ubuntu 18.04 and 20.04.
 
