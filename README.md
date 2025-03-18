@@ -58,7 +58,7 @@ with the corresponding file input path.
 You can also use `utils/get_gcov.py` script as the following example.
 
 ## Experiment setups
-You can find experiment materials in `paper_exp/`.
+You can find experiment materials in `paper_exp/` (in `tosem_2024` branch).
 
 ## Working example
 1. Build ZigZagFuzz
