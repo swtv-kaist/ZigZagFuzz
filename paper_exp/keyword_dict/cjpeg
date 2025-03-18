@@ -1,0 +1,33 @@
+-quality 50
+-quality 0
+-quality 100
+-grayscale
+-rgb
+-optimize
+-progressive
+-targa
+-arithmetic
+-dct int
+-dct fast
+-dct float
+-icc @@
+-restart 0
+-restart 1
+-restart 2
+-smooth 1
+-smooth 50
+-smooth 100
+-maxmemory 500
+-outfile /dev/null
+-memdst
+-report
+-verbose
+-debug
+-version
+-baseline
+-qtables @@
+-qslots 50
+-sample 1x1
+-sample 2x2
+-scans @@
+@@

@@ -1,0 +1,20 @@
+--version
+--verbose
+--debug-level 0
+--debug-level 1
+--input @@
+--input-format pnm
+--input-format bmp
+--input-format ras
+--input-format jp2
+--input-format jpc
+--input-format pgx
+--output /dev/null
+--output-format pnm
+--output-format bmp
+--output-format ras
+--output-format jpc
+--output-format jp2
+--output-format pgx
+--force-srgb
+@@
