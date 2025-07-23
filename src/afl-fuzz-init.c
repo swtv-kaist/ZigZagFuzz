@@ -796,6 +796,7 @@ void perform_dry_run(afl_state_t *afl) {
 
     fd = open(q->fname, O_RDONLY);
     if (fd < 0) { PFATAL("Unable to open '%s'", q->fname); }
+    close(fd);
 
     u32 read_len = MIN(q->len, (u32)MAX_FILE);
 

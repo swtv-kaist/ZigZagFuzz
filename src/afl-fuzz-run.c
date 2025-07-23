@@ -456,7 +456,17 @@ u8 calibrate_case(afl_state_t *afl, struct queue_entry *q, u8 *use_mem,
 
     u64 cksum;
 
-    (void)write_to_testcase(afl, (void **)&use_mem, q->len, 1);
+    if (afl->mut_argv_file_all) {
+      write_argv_file(afl, use_mem, q->argv_len);
+
+      u8 *tmp = use_mem + ARGV_MAX_SIZE;
+      (void)write_to_testcase(afl, (void **)&tmp, q->len, 1);
+
+    } else {
+      write_argv_file(afl, q->argv, q->argv_len);
+
+      (void)write_to_testcase(afl, (void **)&use_mem, q->len, 1);
+    }
 
     fault = fuzz_run_target(afl, &afl->fsrv, use_tmout);
 
