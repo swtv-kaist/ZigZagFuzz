@@ -89,11 +89,13 @@ Refer to the following example for clarification.
     ```
 4. Replay generated test inputs
 
-    0. **Note**  
+    0. **Note**
+       
        The previously instrumented binary (e.g., `dwarfdump.afl`) cannot be used directly for replaying generated inputs.  
        You must rebuild the program with the following configuration.
 
-    1. **Prepare Inputs**  
+    2. **Prepare Inputs**
+       
        Each test input consists of:
        - A file input (located under `queue/` or `crashes/`)
        - A command-line input (located under `queue_argvs/` or `crashes_argvs/`)
@@ -102,7 +104,8 @@ Refer to the following example for clarification.
        Crashing inputs are stored under the `crashes` and `crashes_argvs` directories.
 
    
-    2. **Prepare to perform a clean build.**
+    3. **Prepare to perform a clean build.**
+       
     ```bash
     rm -rf libdwarf-code-0.5.0
     tar -xf libdwarf-0.5.0.tar.xz
@@ -110,6 +113,7 @@ Refer to the following example for clarification.
     ```
 
     3. **Insert the Replay Probe**
+       
     Add the following lines to the beginning of the main function in the target program’s source file
     (e.g., `src/bin/dwarfdump/dwarfdump.c`):
 
