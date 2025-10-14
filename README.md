@@ -1,7 +1,7 @@
 # ZigZagFuzz
 
-ZigZagFuzz is implemented on top of AFL++, and you can use ZigZagFuzz as similar way to AFL++.
-The below documentation focuses on the difference from AFL++.
+ZigZagFuzz is implemented on top of AFL++, and you can use ZigZagFuzz in a similar way to AFL++.
+The documentation below focuses on the difference from AFL++.
 Please refer [AFL++_readme](README_AFL++.md) to get a basic understanding of the base fuzzer, AFL++.
 
 We recently updated the underlying AFL++ version to the recent version (4.22a).
@@ -20,7 +20,7 @@ ZigZagFuzz has been tested on Ubuntu 18.04 and 20.04.
 You can simply run `make` command to build ZigZagFuzz.
 
 ## Instrumentation
-You can perform instrumentation as same to AFL++.
+You can perform instrumentation in the same way as AFL++.
 I recommend you to use [gllvm](https://github.com/SRI-CSL/gllvm) and get a whole bitcode of the subject program before performing instrumentation.
 
 For example, `${ZigZagFuzz_repo}/afl-clang-lto++ <target.bc> -o <target.afl> <ld flags...>` will give you an instrumented program.
@@ -31,11 +31,11 @@ To conveniently mutate both inputs, ZigZagFuzz generates two separate files for 
 (One for the command line option, and the other for the file.)
 
 The file inputs are saved in the ordinary `queue` directory in the output directory,
-while the command-line option inputs are saved in `queue_argv` directory.
-Each file pair with the same id will be considered as a test case.
+while the command-line option inputs are saved in the `queue_argv` directory.
+Each file pair with the same ID will be considered as a test case.
 
 The instrumented program will take only one command-line option,
-the path to the command-line option input. The instrumented code in the main function
+the path to the command-line option input file. The instrumented code in the main function
 will interpret the given command-line option input file, and it will begin the execution.
 
 ## Run ZigZagFuzz
@@ -48,17 +48,16 @@ For example, you can run `afl-fuzz` with the following command.
 You can find dictionary file examples in `paper_exp/keyword_dict/`.
 The dictionary file is a simple list of keywords that can be used in command-line options.
 
-## Replay
-The saved program option input files should contain the path to the file input.
-However, to make it easier to mutate the command-line option input files,
-The path strings are replaced with "@@".
-If you want to replay the saved test case, you should replace the first @@ in a command-line option input
-with the corresponding file input path.
-
-You can also use `utils/get_gcov.py` script as the following example.
-
 ## Experiment setups
 You can find experiment materials in `paper_exp/`.
+
+## Replay
+When ZigZagFuzz saves program option input files, it replaces the file path arguments with the placeholder string `@@`.
+This makes it easier to mutate command-line option files during fuzzing.
+
+To replay a saved test case, you must replace the first occurrence of `@@` in the command-line input with the actual path to the corresponding file input.
+
+Refer to the following example for clarification.
 
 ## Working example
 1. Build ZigZagFuzz
@@ -88,6 +87,59 @@ You can find experiment materials in `paper_exp/`.
         -o out_dwarfdump_1 -K 2 -a ${ZigZagFuzz_Repo}/paper_exp/keyword_dict/dwarfdump -- \
         subjects/dwarfdump.afl -b -a -r -f -i -ls -c -ta @@
     ```
+4. Replay generated test inputs
+
+    0. **Note**  
+       The previously instrumented binary (e.g., `dwarfdump.afl`) cannot be used directly for replaying generated inputs.  
+       You must rebuild the program with the following configuration.
+
+    1. **Prepare Inputs**  
+       Each test input consists of:
+       - A file input (located under `queue/` or `crashes/`)
+       - A command-line input (located under `queue_argvs/` or `crashes_argvs/`)
+
+       Each pair shares the same ID.  
+       Crashing inputs are stored under the `crashes` and `crashes_argvs` directories.
+
+   
+    2. **Prepare to perform a clean build.**
+    ```bash
+    rm -rf libdwarf-code-0.5.0
+    tar -xf libdwarf-0.5.0.tar.xz
+    cd libdwarf-code-0.5.0
+    ```
+
+    3. **Insert the Replay Probe**
+    Add the following lines to the beginning of the main function in the target program’s source file
+    (e.g., `src/bin/dwarfdump/dwarfdump.c`):
+
+    ```c
+    #include "${ZigZagFuzz_repo}/utils/argv_fuzzing/argv-fuzz-inl.h"
+    
+    int 
+    main(int argc, char * argv[])
+    {
+        AFL_INIT_ARGV();
+        ...
+    ```
+
+    4. **Rebuild the Program**
+
+    ```bash
+    bash ./autogen.sh
+    ./configure --prefix=`pwd`/gcov_install --disable-shared
+    make -j 20
+    make install
+    ```
+
+    5. **Run the Replay**
+   
+    To replay a test case, replace the first `@@` in the saved command-line input with the actual file input path.
+   
+    For example, if the command line input is `@@ -a -b -c @@`, the actual command line should be `./<program> <poc> -a -b -c @@`.
+
+    - `<program>` is the rebuilt program from step 4
+    - `<poc>` is the path to the file input.
 
 4. Replay with gcov coverage information
     1. Prepare to perform a clean build.
@@ -97,7 +149,7 @@ You can find experiment materials in `paper_exp/`.
     cd libdwarf-code-0.5.0
     ```
 
-    2. Put probe code in the main function as in the following example.
+    2. Put the probe code in the main function as in the following example.
     
     `src/bin/dwarfdump/dwarfdump.c`
     ```c
@@ -110,7 +162,7 @@ You can find experiment materials in `paper_exp/`.
         ...
     ```
 
-    3. Build.
+    3. Build with coverage configuration flags.
 
     ```bash
     bash ./autogen.sh
