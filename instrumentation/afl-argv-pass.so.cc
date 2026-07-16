@@ -113,7 +113,12 @@ llvmGetPassPluginInfo() {
             using OptimizationLevel = typename PassBuilder::OptimizationLevel;
     #endif
             PB.registerOptimizerLastEPCallback(
+    #if LLVM_VERSION_MAJOR >= 20
+                [](ModulePassManager &MPM, OptimizationLevel OL,
+                   ThinOrFullLTOPhase Phase) {
+    #else
                 [](ModulePassManager &MPM, OptimizationLevel OL) {
+    #endif
                   MPM.addPass(ArgvTransform());
                 });
 
@@ -180,15 +185,24 @@ bool ArgvTransform::runOnModule(Module &M) {
 
   FilePtrTy = NULL;
   for (auto &type : M.getIdentifiedStructTypes()) {
+#if LLVM_VERSION_MAJOR >= 19
+    if (type->getName().starts_with("struct._IO_FILE")) {
+#else
     if (type->getName().startswith("struct._IO_FILE")) {
+#endif
       FilePtrTy = PointerType::get(type, 0);
       break;
     }
   }
 
   if (FilePtrTy == nullptr) {
-    errs() << "Can't find IO_FILE type! Abort.\n";
-    return PA;
+
+    /* The module never uses FILE, so the type was never emitted. It therefore
+       cannot call fopen()/freopen() either, leaving the wrappers below
+       unreachable - an opaque struct is enough to declare them with. */
+    FilePtrTy =
+        PointerType::get(StructType::create(*Context, "struct._IO_FILE"), 0);
+
   }
 
   insert_argv(main_func);
@@ -328,7 +342,11 @@ void ArgvTransform::replace_open_funcs() {
 
             CallInst *call = cast<CallInst>(*iter);
 
+#if LLVM_VERSION_MAJOR >= 14
+            if (call->arg_size() != 3) { continue; }
+#else
             if (call->getNumArgOperands() != 3) { continue; }
+#endif
 
             IRB->SetInsertPoint(call);
             Value *arg0 = call->getArgOperand(0);

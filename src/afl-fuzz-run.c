@@ -739,8 +739,34 @@ void sync_fuzzers(afl_state_t *afl) {
 
         if (mem == MAP_FAILED) { PFATAL("Unable to mmap '%s'", path); }
 
+        /* ZigZagFuzz test cases are (file input, command-line option input)
+           pairs. Grab the peer's matching argv from its queue_argvs/ directory
+           so that we execute - and, if interesting, save - the imported case
+           with the argv it was actually found with. Fall back to the default
+           argv if the peer has no matching entry (e.g. a plain AFL++ node). */
+
+        u8  argv_buf[ARGV_MAX_SIZE];
+        u8 *argv = afl->default_argv;
+        u32 argv_len = afl->default_argv_len;
+
+        u8 argv_path[PATH_MAX + 1 + NAME_MAX];
+        snprintf(argv_path, sizeof(argv_path), "%s/%s/queue_argvs/id:%06u",
+                 afl->sync_dir, sd_ent->d_name, afl->syncing_case);
+
+        s32 argv_fd = open(argv_path, O_RDONLY);
+        if (argv_fd >= 0) {
+          ssize_t argv_rlen = read(argv_fd, argv_buf, ARGV_MAX_SIZE);
+          close(argv_fd);
+          if (argv_rlen > 0) {
+            argv = argv_buf;
+            argv_len = (u32)argv_rlen;
+          }
+        }
+
         /* See what happens. We rely on save_if_interesting() to catch major
            errors and save the test case. */
+
+        if (argv && argv_len) { write_argv_file(afl, argv, argv_len); }
 
         u32 new_len = write_to_testcase(afl, (void **)&mem, st.st_size, 1);
 
@@ -750,7 +776,7 @@ void sync_fuzzers(afl_state_t *afl) {
 
         afl->syncing_party = sd_ent->d_name;
         afl->queued_imported +=
-            save_if_interesting(afl, mem, new_len, fault, 0, 0);
+            save_if_interesting(afl, mem, new_len, fault, argv, argv_len);
         show_stats(afl);
         afl->syncing_party = 0;
 

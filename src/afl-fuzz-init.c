@@ -606,6 +606,14 @@ void read_testcases(afl_state_t *afl, u8 *directory, char **argv) {
 
   default_argv[cur_argv_len++] = 0;
 
+  /* Remember the default argv so that sync_fuzzers() can fall back to it when a
+     peer exposes a queue entry without a matching queue_argvs/ file. */
+  if (!afl->default_argv) {
+    afl->default_argv = ck_alloc(ARGV_MAX_SIZE);
+    memcpy(afl->default_argv, default_argv, cur_argv_len);
+    afl->default_argv_len = cur_argv_len;
+  }
+
   if (afl->mut_argv_file_all) { cur_argv_len = ARGV_MAX_SIZE; }
 
   /* Auto-detect non-in-place resumption attempts. */

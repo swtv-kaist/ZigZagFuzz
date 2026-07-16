@@ -71,6 +71,8 @@ void free_argv_bufs(afl_state_t *afl) {
   free(afl->file_num_mut);
   free(afl->file_num_argv_mut);
   free(afl->file_num_argv_finds);
+
+  if (afl->default_argv) { ck_free(afl->default_argv); }
   return;
 }
 

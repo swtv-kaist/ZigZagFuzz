@@ -872,6 +872,11 @@ typedef struct afl_state {
   u8 **argv_dict;
   u32  argv_dict_cnt;
 
+  /* default argv (from the command line), used as a fallback when syncing a
+     test case from a peer that has no matching queue_argvs/ entry */
+  u8  *default_argv;
+  u32  default_argv_len;
+
   FILE *shrink_log_f;
 
 #ifdef INTROSPECTION

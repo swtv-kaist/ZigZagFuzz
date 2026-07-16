@@ -124,7 +124,12 @@ llvmGetPassPluginInfo() {
             using OptimizationLevel = typename PassBuilder::OptimizationLevel;
   #endif
             PB.registerOptimizerLastEPCallback(
+  #if LLVM_VERSION_MAJOR >= 20
+                [](ModulePassManager &MPM, OptimizationLevel OL,
+                   ThinOrFullLTOPhase Phase) {
+  #else
                 [](ModulePassManager &MPM, OptimizationLevel OL) {
+  #endif
 
                   MPM.addPass(CmpLogInstructions());
 
