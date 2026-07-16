@@ -8,28 +8,25 @@ import each other's finds.  This wrapper spawns one main + (N-1) secondaries for
 a target, keeps them running, prints a compact live status table, and shuts the
 whole fleet down cleanly on Ctrl-C.
 
+Each instance runs from its own throwaway working directory under $TMPDIR, which
+is removed on exit.  ZigZagFuzz mutates the target command line, so the target
+tends to create files with arbitrary names in its working directory; this keeps
+that clutter out of your own directory.  Findings still go to -o as usual.
+
 Example
 -------
-    ./zzf-multicore.py -j 4 -i seeds -o out -a paper_exp/keyword_dict/foo.dict \\
-        -- ./target.afl -v @@
-
-Everything after `--` is the target command line exactly as you would pass it to
-afl-fuzz (use `@@` for the file-input placeholder).  ZigZagFuzz-specific flags
-such as -K (interleaving) and -C (combined argv/file mode) can be forwarded with
---afl-arg, e.g.  --afl-arg=-K --afl-arg=2 .
+    ./zzf-multicore.py -j 4 -i seeds -o out -a keywords.dict -- ./target.afl -v @@
 """
 
 import argparse
 import os
+import shlex
 import shutil
 import signal
 import subprocess
 import sys
 import tempfile
 import time
-
-# Reserved -M/-S names that ZigZagFuzz/AFL++ refuse or treat specially.
-RESERVED_IDS = {"addseeds", "default"}
 
 
 def parse_args():
@@ -58,21 +55,12 @@ def parse_args():
     p.add_argument("--afl-arg", action="append", default=[], metavar="ARG",
                    help="extra argument forwarded verbatim to every afl-fuzz "
                         "instance; repeatable (e.g. --afl-arg=-K --afl-arg=2)")
-    p.add_argument("--name", default="zzf",
-                   help="prefix for the -M/-S instance names (default: zzf)")
     p.add_argument("-V", "--timeout", type=int, default=0,
                    help="stop the whole fleet after this many seconds "
                         "(0 = run until Ctrl-C)")
     p.add_argument("--no-affinity", action="store_true",
                    help="set AFL_NO_AFFINITY=1 so instances are not pinned to "
                         "CPU cores (needed when jobs > free cores)")
-    p.add_argument("--work-dir", default=None,
-                   help="parent directory in which to create the per-instance "
-                        "scratch working directories (default: a fresh temp "
-                        "dir under $TMPDIR)")
-    p.add_argument("--keep-work", action="store_true",
-                   help="do not delete the scratch working directories on exit "
-                        "(default: they are removed)")
     p.add_argument("--status-interval", type=int, default=5,
                    help="seconds between status-table refreshes (0 = quiet)")
 
@@ -113,15 +101,9 @@ def resolve_target_exe(exe):
     return exe
 
 
-def instance_names(prefix, jobs):
-    """Return [main, sec01, sec02, ...]; the first is the main (-M) node."""
-    names = [f"{prefix}-main"]
-    for k in range(1, jobs):
-        names.append(f"{prefix}-s{k:02d}")
-    for n in names:
-        if n in RESERVED_IDS:
-            sys.exit(f"[!] instance name '{n}' is reserved, pick another --name")
-    return names
+def instance_names(jobs):
+    """Return [main, s01, s02, ...]; the first is the main (-M) node."""
+    return ["main"] + [f"s{k:02d}" for k in range(1, jobs)]
 
 
 def build_cmd(afl_fuzz, args, name, is_main):
@@ -133,28 +115,28 @@ def build_cmd(afl_fuzz, args, name, is_main):
     return cmd
 
 
-def launch(afl_fuzz, args, names, logdir, work_root, env):
+def launch(afl_fuzz, args, names, work_root, env):
     procs = []
     for idx, name in enumerate(names):
         is_main = idx == 0
         cmd = build_cmd(afl_fuzz, args, name, is_main)
-        logpath = os.path.join(logdir, f"{name}.log")
-        logf = open(logpath, "wb")
-        # Give every instance its own scratch cwd. ZigZagFuzz mutates the target
-        # command line, so the target may create files with arbitrary names in
-        # its working directory; running there keeps that clutter out of the
-        # user's directory and lets us clean it up afterwards. afl-fuzz's own
-        # state still lives under -o, which we pass as an absolute path.
+        # Give every instance its own scratch cwd, so junk files the target
+        # creates from mutated command lines stay out of the user's directory
+        # and cannot collide between instances.
         workdir = os.path.join(work_root, name)
         os.makedirs(workdir, exist_ok=True)
+        # ZigZagFuzz prints a status line for every test case when stdout is not
+        # a tty, which is tens of MB/s on a real target; we drop it. Live state
+        # comes from the status table below, which reads fuzzer_stats.
         # New process group so we can signal the whole tree at shutdown.
-        p = subprocess.Popen(cmd, stdout=logf, stderr=subprocess.STDOUT,
+        p = subprocess.Popen(cmd, stdout=subprocess.DEVNULL,
+                             stderr=subprocess.DEVNULL,
                              stdin=subprocess.DEVNULL, env=env, cwd=workdir,
                              start_new_session=True)
-        procs.append({"name": name, "proc": p, "log": logpath, "logf": logf,
-                      "main": is_main, "workdir": workdir})
+        procs.append({"name": name, "proc": p, "main": is_main,
+                      "workdir": workdir, "cmd": cmd})
         role = "main" if is_main else "secondary"
-        print(f"[+] launched {name:>12} ({role}, pid {p.pid}) -> {logpath}")
+        print(f"[+] launched {name:>6} ({role}, pid {p.pid})")
         # Stagger startup so the main node creates the sync dir before the
         # secondaries scan it, and to avoid a thundering herd on the target.
         time.sleep(0.5)
@@ -201,16 +183,17 @@ def print_status(args, procs, start):
                      cvg))
 
     elapsed = int(time.time() - start)
-    os.write(1, b"\n")
+    print()
     print(f"=== ZigZagFuzz fleet | {len(procs)} instances | "
           f"elapsed {elapsed//3600:02d}:{elapsed%3600//60:02d}:{elapsed%60:02d} "
           f"| total execs {tot_execs} | corpus {tot_corpus} | "
           f"crashes {tot_crashes} | hangs {tot_hangs}")
+    print(f"    output: {args.output}")
     hdr = ("instance", "state", "exec/s", "corpus", "imp", "crash", "hang",
            "cvg")
-    print("  {:<14}{:<12}{:>10}{:>8}{:>6}{:>7}{:>6}{:>9}".format(*hdr))
+    print("  {:<10}{:<12}{:>10}{:>8}{:>6}{:>7}{:>6}{:>9}".format(*hdr))
     for r in rows:
-        print("  {:<14}{:<12}{:>10}{:>8}{:>6}{:>7}{:>6}{:>9}".format(*r))
+        print("  {:<10}{:<12}{:>10}{:>8}{:>6}{:>7}{:>6}{:>9}".format(*r))
 
 
 def shutdown(procs):
@@ -238,32 +221,13 @@ def shutdown(procs):
                 os.killpg(os.getpgid(e["proc"].pid), signal.SIGKILL)
             except (ProcessLookupError, PermissionError):
                 pass
-    for e in procs:
-        try:
-            e["logf"].close()
-        except Exception:
-            pass
     print("[+] all instances stopped.")
-
-
-def cleanup_work(work_root, own_temp, keep):
-    """Remove the scratch working directories unless the user asked to keep
-    them. Only auto-created temp roots are deleted; a user-supplied --work-dir
-    is left in place."""
-    if keep or not own_temp:
-        if work_root:
-            print(f"[*] scratch working dirs left in {work_root}")
-        return
-    try:
-        shutil.rmtree(work_root)
-    except OSError as e:
-        print(f"[!] could not remove scratch dir {work_root}: {e}")
 
 
 def main():
     args = parse_args()
     afl_fuzz = resolve_afl_fuzz(args.afl_fuzz)
-    names = instance_names(args.name, args.jobs)
+    names = instance_names(args.jobs)
 
     # Because each instance runs from its own scratch cwd (see launch()), every
     # path we hand to afl-fuzz must be absolute or it would resolve against the
@@ -274,19 +238,7 @@ def main():
     args.target = [resolve_target_exe(args.target[0])] + args.target[1:]
 
     os.makedirs(args.output, exist_ok=True)
-    logdir = os.path.join(args.output, "zzf-multicore-logs")
-    os.makedirs(logdir, exist_ok=True)
-
-    # Scratch working directories for the fuzzed targets. A fresh temp dir by
-    # default, so junk files from mutated command lines never touch the user's
-    # directory; --work-dir overrides the location and is never auto-deleted.
-    if args.work_dir:
-        work_root = os.path.abspath(args.work_dir)
-        os.makedirs(work_root, exist_ok=True)
-        own_temp = False
-    else:
-        work_root = tempfile.mkdtemp(prefix="zzf-multicore-")
-        own_temp = True
+    work_root = tempfile.mkdtemp(prefix="zzf-multicore-")
 
     env = os.environ.copy()
     # The wrapper owns the terminal; instances must not draw the interactive UI.
@@ -296,39 +248,36 @@ def main():
 
     print(f"[*] afl-fuzz : {afl_fuzz}")
     print(f"[*] target   : {' '.join(args.target)}")
-    print(f"[*] output   : {args.output}  (logs in {logdir})")
-    print(f"[*] work dir : {work_root}"
-          f"{'  (temporary, removed on exit)' if own_temp else ''}")
+    print(f"[*] output   : {args.output}")
+    print(f"[*] work dir : {work_root}  (temporary, removed on exit)")
     print(f"[*] launching {args.jobs} instance(s): "
           f"1 main + {args.jobs - 1} secondary\n")
 
-    procs = launch(afl_fuzz, args, names, logdir, work_root, env)
-
-    # If the main node dies immediately (bad args, missing dict, ...), surface
-    # its log and abort rather than leaving orphan secondaries running.
-    time.sleep(1.0)
-    main_proc = procs[0]["proc"]
-    if main_proc.poll() is not None:
-        print(f"\n[!] main node exited early (rc={main_proc.returncode}); "
-              f"tail of {procs[0]['log']}:\n")
-        with open(procs[0]["log"], "rb") as f:
-            sys.stdout.buffer.write(f.read()[-2000:])
-        sys.stdout.buffer.write(b"\n")
-        sys.stdout.buffer.flush()
-        shutdown(procs)
-        cleanup_work(work_root, own_temp, args.keep_work)
-        sys.exit(1)
-
+    procs = launch(afl_fuzz, args, names, work_root, env)
     start = time.time()
-    stop = {"flag": False}
-
-    def on_signal(signum, frame):
-        stop["flag"] = True
-
-    signal.signal(signal.SIGINT, on_signal)
-    signal.signal(signal.SIGTERM, on_signal)
+    fuzzing = False
 
     try:
+        # If the main node dies immediately (bad args, missing dict, ...), say so
+        # and abort rather than leaving orphan secondaries running. Instance
+        # output is discarded, so hand back the command to reproduce the error.
+        time.sleep(1.0)
+        main_proc = procs[0]["proc"]
+        if main_proc.poll() is not None:
+            print(f"\n[!] main node exited early (rc={main_proc.returncode}). "
+                  f"Run it directly to see why:\n\n"
+                  f"    {shlex.join(procs[0]['cmd'])}\n")
+            sys.exit(1)
+        fuzzing = True
+
+        stop = {"flag": False}
+
+        def on_signal(signum, frame):
+            stop["flag"] = True
+
+        signal.signal(signal.SIGINT, on_signal)
+        signal.signal(signal.SIGTERM, on_signal)
+
         last_status = 0.0
         while not stop["flag"]:
             time.sleep(0.5)
@@ -348,9 +297,9 @@ def main():
                 break
     finally:
         shutdown(procs)
-        if args.status_interval:
+        if fuzzing and args.status_interval:
             print_status(args, procs, start)
-        cleanup_work(work_root, own_temp, args.keep_work)
+        shutil.rmtree(work_root, ignore_errors=True)
 
 
 if __name__ == "__main__":
