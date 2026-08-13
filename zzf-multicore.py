@@ -29,6 +29,21 @@ import tempfile
 import time
 
 
+def say(*a, **kw):
+    """print() that can never abort us.
+
+    When stdout is a pipe whose reader has already died - `timeout 1h ... | tee
+    log` signals the whole process group, so tee goes first - a plain print()
+    raises BrokenPipeError.  Raised from the shutdown path, that abandons the
+    fleet half-stopped and leaves orphaned instances behind, so every message
+    this tool prints goes through here instead."""
+    try:
+        print(*a, **kw)
+        sys.stdout.flush()
+    except (BrokenPipeError, OSError, ValueError):
+        pass
+
+
 def parse_args():
     p = argparse.ArgumentParser(
         prog="zzf-multicore.py",
@@ -115,9 +130,28 @@ def build_cmd(afl_fuzz, args, name, is_main):
     return cmd
 
 
-def launch(afl_fuzz, args, names, work_root, env):
-    procs = []
+def interruptible_sleep(duration, stop):
+    """Sleep, but return early once a shutdown signal has been seen."""
+    deadline = time.time() + duration
+    while not stop["flag"]:
+        remaining = deadline - time.time()
+        if remaining <= 0:
+            break
+        time.sleep(min(0.1, remaining))
+
+
+def launch(afl_fuzz, args, names, work_root, env, procs, stop):
+    """Spawn the instances, appending each to `procs` as soon as it exists.
+
+    `procs` is owned by the caller so that a shutdown signal arriving part-way
+    through the staggered startup still finds - and stops - the instances that
+    are already running.
+    """
     for idx, name in enumerate(names):
+        if stop["flag"]:
+            say("[*] shutdown requested during startup; "
+                "not launching the remaining instances.")
+            break
         is_main = idx == 0
         cmd = build_cmd(afl_fuzz, args, name, is_main)
         # Give every instance its own scratch cwd, so junk files the target
@@ -136,10 +170,10 @@ def launch(afl_fuzz, args, names, work_root, env):
         procs.append({"name": name, "proc": p, "main": is_main,
                       "workdir": workdir, "cmd": cmd})
         role = "main" if is_main else "secondary"
-        print(f"[+] launched {name:>6} ({role}, pid {p.pid})")
+        say(f"[+] launched {name:>6} ({role}, pid {p.pid})")
         # Stagger startup so the main node creates the sync dir before the
         # secondaries scan it, and to avoid a thundering herd on the target.
-        time.sleep(0.5)
+        interruptible_sleep(0.5, stop)
     return procs
 
 
@@ -183,21 +217,40 @@ def print_status(args, procs, start):
                      cvg))
 
     elapsed = int(time.time() - start)
-    print()
-    print(f"=== ZigZagFuzz fleet | {len(procs)} instances | "
-          f"elapsed {elapsed//3600:02d}:{elapsed%3600//60:02d}:{elapsed%60:02d} "
-          f"| total execs {tot_execs} | corpus {tot_corpus} | "
-          f"crashes {tot_crashes} | hangs {tot_hangs}")
-    print(f"    output: {args.output}")
+    say()
+    say(f"=== ZigZagFuzz fleet | {len(procs)} instances | "
+        f"elapsed {elapsed//3600:02d}:{elapsed%3600//60:02d}:{elapsed%60:02d} "
+        f"| total execs {tot_execs} | corpus {tot_corpus} | "
+        f"crashes {tot_crashes} | hangs {tot_hangs}")
+    say(f"    output: {args.output}")
     hdr = ("instance", "state", "exec/s", "corpus", "imp", "crash", "hang",
            "cvg")
-    print("  {:<10}{:<12}{:>10}{:>8}{:>6}{:>7}{:>6}{:>9}".format(*hdr))
+    say("  {:<10}{:<12}{:>10}{:>8}{:>6}{:>7}{:>6}{:>9}".format(*hdr))
     for r in rows:
-        print("  {:<10}{:<12}{:>10}{:>8}{:>6}{:>7}{:>6}{:>9}".format(*r))
+        say("  {:<10}{:<12}{:>10}{:>8}{:>6}{:>7}{:>6}{:>9}".format(*r))
 
 
-def shutdown(procs):
-    print("\n[*] stopping fleet (SIGINT, letting instances flush stats)...")
+def descendant_pids(pid):
+    """Best-effort list of a process' descendants, via /proc.  Used to reach the
+    target tree, which the forkserver puts in a session of its own."""
+    out = []
+    pending = [pid]
+    while pending:
+        cur = pending.pop()
+        try:
+            with open(f"/proc/{cur}/task/{cur}/children") as f:
+                kids = [int(p) for p in f.read().split()]
+        except (OSError, ValueError):
+            continue
+        out += kids
+        pending += kids
+    return out
+
+
+def shutdown(procs, stop=None):
+    if not procs:
+        return
+    say("\n[*] stopping fleet (SIGINT, letting instances flush stats)...")
     for e in procs:
         if e["proc"].poll() is None:
             try:
@@ -206,22 +259,43 @@ def shutdown(procs):
                 os.killpg(os.getpgid(e["proc"].pid), signal.SIGINT)
             except (ProcessLookupError, PermissionError):
                 pass
-    # Give them a moment to exit cleanly, then hard-kill stragglers.
+    # Give them a moment to exit cleanly, then hard-kill stragglers. A repeated
+    # signal (impatient Ctrl-C, or timeout's -k follow-up) cuts the grace short
+    # rather than being swallowed while we wait.
+    signals_seen = stop["count"] if stop else 0
     deadline = time.time() + 15
-    for e in procs:
-        remaining = max(0.0, deadline - time.time())
-        try:
-            e["proc"].wait(timeout=remaining)
-        except subprocess.TimeoutExpired:
-            pass
+    while time.time() < deadline:
+        if all(e["proc"].poll() is not None for e in procs):
+            break
+        if stop and stop["count"] > signals_seen:
+            say("[*] second signal received; not waiting any longer.")
+            break
+        time.sleep(0.1)
     for e in procs:
         if e["proc"].poll() is None:
-            print(f"[!] force killing {e['name']} (pid {e['proc'].pid})")
+            say(f"[!] force killing {e['name']} (pid {e['proc'].pid})")
+            # The forkserver calls setsid() (see afl-forkserver.c), so the
+            # target tree lives in its own session and killpg on the instance
+            # does not reach it. Collect the descendants first, then kill the
+            # instance's group, then mop up whatever the instance would have
+            # cleaned up had it exited on its own.
+            descendants = descendant_pids(e["proc"].pid)
             try:
                 os.killpg(os.getpgid(e["proc"].pid), signal.SIGKILL)
             except (ProcessLookupError, PermissionError):
                 pass
-    print("[+] all instances stopped.")
+            for pid in descendants:
+                try:
+                    os.kill(pid, signal.SIGKILL)
+                except (ProcessLookupError, PermissionError):
+                    pass
+    # Reap, so we do not leave zombies behind for the rest of our own lifetime.
+    for e in procs:
+        try:
+            e["proc"].wait(timeout=2)
+        except subprocess.TimeoutExpired:
+            pass
+    say("[+] all instances stopped.")
 
 
 def main():
@@ -246,45 +320,59 @@ def main():
     if args.no_affinity:
         env["AFL_NO_AFFINITY"] = "1"
 
-    print(f"[*] afl-fuzz : {afl_fuzz}")
-    print(f"[*] target   : {' '.join(args.target)}")
-    print(f"[*] output   : {args.output}")
-    print(f"[*] work dir : {work_root}  (temporary, removed on exit)")
-    print(f"[*] launching {args.jobs} instance(s): "
-          f"1 main + {args.jobs - 1} secondary\n")
+    say(f"[*] afl-fuzz : {afl_fuzz}")
+    say(f"[*] target   : {' '.join(args.target)}")
+    say(f"[*] output   : {args.output}")
+    say(f"[*] work dir : {work_root}  (temporary, removed on exit)")
+    say(f"[*] launching {args.jobs} instance(s): "
+        f"1 main + {args.jobs - 1} secondary\n")
 
-    procs = launch(afl_fuzz, args, names, work_root, env)
+    procs = []
+    stop = {"flag": False, "count": 0}
+
+    def on_signal(signum, frame):
+        stop["flag"] = True
+        stop["count"] += 1
+
+    # Install the handlers *before* the first instance is spawned. Until they
+    # are in place SIGTERM/SIGINT have their default disposition, so a signal
+    # arriving during the staggered startup (0.5s per instance, plus the probe
+    # below - seconds of exposure at high -j) kills this process outright: the
+    # cleanup path never runs and every instance launched so far is orphaned,
+    # reparented to init, and keeps fuzzing forever. That is exactly what
+    # `timeout ... ./zzf-multicore.py` used to do.
+    for _sig in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
+        signal.signal(_sig, on_signal)
+
     start = time.time()
     fuzzing = False
 
     try:
+        launch(afl_fuzz, args, names, work_root, env, procs, stop)
+        start = time.time()
+
         # If the main node dies immediately (bad args, missing dict, ...), say so
         # and abort rather than leaving orphan secondaries running. Instance
         # output is discarded, so hand back the command to reproduce the error.
-        time.sleep(1.0)
+        interruptible_sleep(1.0, stop)
+        if stop["flag"]:
+            say("\n[*] shutdown requested before fuzzing started.")
+            return
         main_proc = procs[0]["proc"]
         if main_proc.poll() is not None:
-            print(f"\n[!] main node exited early (rc={main_proc.returncode}). "
-                  f"Run it directly to see why:\n\n"
-                  f"    {shlex.join(procs[0]['cmd'])}\n")
+            say(f"\n[!] main node exited early (rc={main_proc.returncode}). "
+                f"Run it directly to see why:\n\n"
+                f"    {shlex.join(procs[0]['cmd'])}\n")
             sys.exit(1)
         fuzzing = True
 
-        stop = {"flag": False}
-
-        def on_signal(signum, frame):
-            stop["flag"] = True
-
-        signal.signal(signal.SIGINT, on_signal)
-        signal.signal(signal.SIGTERM, on_signal)
-
         last_status = 0.0
         while not stop["flag"]:
-            time.sleep(0.5)
+            interruptible_sleep(0.5, stop)
             now = time.time()
 
             if args.timeout and now - start >= args.timeout:
-                print(f"\n[*] timeout of {args.timeout}s reached.")
+                say(f"\n[*] timeout of {args.timeout}s reached.")
                 break
 
             if (args.status_interval
@@ -293,10 +381,10 @@ def main():
                 last_status = now
 
             if all(e["proc"].poll() is not None for e in procs):
-                print("\n[*] all instances have exited.")
+                say("\n[*] all instances have exited.")
                 break
     finally:
-        shutdown(procs)
+        shutdown(procs, stop)
         if fuzzing and args.status_interval:
             print_status(args, procs, start)
         shutil.rmtree(work_root, ignore_errors=True)

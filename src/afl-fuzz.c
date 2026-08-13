@@ -567,9 +567,11 @@ int main(int argc, char **argv_orig, char **envp) {
         break;
 
       case 'K':
-        afl->interleaving = atoi(optarg);
+        // Ablation-study knob; 2 is the default and the only supported mode.
+        // 0 - no interleaving (POWER)
         // 1 - fixed time interleaving
         // 2 - 1 + func cov based shrink file
+        afl->interleaving = atoi(optarg);
         break;
 
         // case 'a':
@@ -957,6 +959,9 @@ int main(int argc, char **argv_orig, char **envp) {
       case 'C':
         // concat, afl++-all
         afl->mut_argv_file_all = 1;
+        // This baseline mutates argv and the file together, so it must not go
+        // through the interleaving schedule that -K selects (2 by default).
+        afl->interleaving = 0;
         break;
 
       case 'n': /* dumb mode */

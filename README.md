@@ -43,10 +43,65 @@ You can start execution as similar to AFL++.
 
 For example, you can run `afl-fuzz` with the following command.
 
-`${ZigZagFuzz_repo}/afl-fuzz -i <initial seed dir> -o <output dir> -K 2 -a <dictinary file path> -- <target.afl> <initial args...>`
+`${ZigZagFuzz_repo}/afl-fuzz -i <initial seed dir> -o <output dir> -a <dictinary file path> -- <target.afl> <initial args...>`
 
 You can find dictionary file examples in `paper_exp/keyword_dict/`.
 The dictionary file is a simple list of keywords that can be used in command-line options.
+
+## Run ZigZagFuzz on multiple cores
+`zzf-multicore.py` is a helper script that runs several ZigZagFuzz instances in parallel,
+using the AFL++ `-M`/`-S` synchronization model (one main node and N-1 secondary nodes
+sharing a single output directory).
+The script launches the whole fleet, keeps it running, prints a live status table,
+and shuts every instance down cleanly on Ctrl-C or after a time limit.
+
+```bash
+${ZigZagFuzz_repo}/zzf-multicore.py -j 4 -i <initial seed dir> -o <output dir> \
+    -a <dictionary file path> -- <target.afl> <initial args...>
+```
+
+The target command goes after `--`, exactly as you would pass it to `afl-fuzz`.
+
+Main options:
+
+| Option | Description |
+| --- | --- |
+| `-j`, `--jobs` | Number of parallel instances (1 main + the rest as secondaries). Required. |
+| `-i`, `--input` | Initial seed directory (passed to `afl-fuzz -i`). Required. |
+| `-o`, `--output` | Shared output directory (passed to `afl-fuzz -o`). Required. |
+| `-a`, `--dict` | Argv keyword dictionary (passed to `afl-fuzz -a`). Required. |
+| `--afl-fuzz` | Path to the `afl-fuzz` binary (default: the one next to the script). |
+| `--afl-arg` | Extra argument forwarded verbatim to every instance; repeatable, one argv token each (e.g. `--afl-arg=-t --afl-arg=1000`). |
+| `-V`, `--timeout` | Stop the whole fleet after this many seconds (0 = run until Ctrl-C). |
+| `--no-affinity` | Set `AFL_NO_AFFINITY=1`, needed when the number of jobs exceeds the free CPU cores. |
+| `--status-interval` | Seconds between status-table refreshes (0 = quiet). |
+
+Notes:
+- Each instance runs from its own temporary working directory, which is removed on exit.
+  ZigZagFuzz mutates the target command line, so the target tends to create files with
+  arbitrary names in its working directory; this keeps that clutter out of your own directory.
+  Findings still go to the `-o` directory as usual.
+  This means you do **not** need to `cd` into a scratch directory first, unlike when you
+  run `afl-fuzz` directly. The script makes the seed, output, dictionary, and target
+  executable paths absolute for you, so relative paths on the command line still work.
+  (Other relative paths inside the target arguments are not rewritten, so pass those as
+  absolute paths.)
+- Findings are stored per instance: `<output dir>/main/`, `<output dir>/s01/`, ... .
+  Each of those directories has the usual `queue`, `queue_argvs`, `crashes`, and
+  `crashes_argvs` subdirectories, instead of the single `default/` directory you get
+  when running `afl-fuzz` directly.
+- The interactive AFL++ UI is disabled for the instances; the status table printed by the
+  script (which reads each instance's `fuzzer_stats`) is the live view.
+
+For example, the following command runs the `dwarfdump` example above on 4 cores
+(from any directory, no `cd` needed):
+
+```bash
+${ZigZagFuzz_Repo}/zzf-multicore.py -j 4 \
+    -i ${ZigZagFuzz_Repo}/paper_exp/init_seeds/dwarfdump \
+    -o out_dwarfdump_1 -a ${ZigZagFuzz_Repo}/paper_exp/keyword_dict/dwarfdump -- \
+    subjects/dwarfdump.afl -b -a -r -f -i -ls -c -ta @@
+```
 
 ## Experiment setups
 You can find experiment materials in `paper_exp/`.
@@ -84,7 +139,7 @@ Refer to the following example for clarification.
     ```bash
     cd /tmp/
     ${ZigZagFuzz_Repo}/afl-fuzz -i ${ZigZagFuzz_Repo}/paper_exp/init_seeds/dwarfdump \
-        -o out_dwarfdump_1 -K 2 -a ${ZigZagFuzz_Repo}/paper_exp/keyword_dict/dwarfdump -- \
+        -o out_dwarfdump_1 -a ${ZigZagFuzz_Repo}/paper_exp/keyword_dict/dwarfdump -- \
         subjects/dwarfdump.afl -b -a -r -f -i -ls -c -ta @@
     ```
 4. Replay generated test inputs
